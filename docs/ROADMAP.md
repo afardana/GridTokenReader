@@ -95,7 +95,14 @@ digit without zooming.
 
 Reference meter: **SMI-810 V2**. See [meters/smi-810-v2.md](meters/smi-810-v2.md).
 
-## Phase 2: Recognition in the backend (MVP readings)
+## Phase 2: Recognition in the backend (MVP readings) — 🚧 in shadow mode
+
+Status (2026-09-29): `recogniser/` (7-segment sampling, no ML) reads the reference
+SMI-810 frames correctly, and the Node-RED plausibility gate is live in **shadow
+mode** (results go to `gridtoken_recognition`, not to `pln_prepaid`). Next:
+evaluate 1–2 days of frames (`recogniser/evaluate.py`), including an LED-lit frame
+after a backlight-off event, then set `GRIDTOKEN_PUBLISH=true`.
+
 
 Iterate on recognition where it's cheap to change, i.e. in Node-RED/Python, not in
 firmware.

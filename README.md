@@ -67,6 +67,7 @@ or upload `firmware/.pio/build/esp32cam/firmware.bin` at `http://<device>/update
 ```
 firmware/     PlatformIO project (Arduino-ESP32 3.x)
 node-red/     Example Node-RED flow
+recogniser/   7-segment reader (Python) + per-installation calibration profiles
 docs/         Roadmap, hardware notes, meter profiles, nginx token gate
 deploy/       nginx snippets + helper, Grafana Flux query
 .env.example  Build-time configuration template (copy to .env)

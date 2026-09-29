@@ -1,0 +1,47 @@
+{
+  "meter": "SMI-810 V2",
+  "note": "Reference install: ESP32-CAM ~3-4 cm from the LCD, SVGA 800x600, backlight on. Pixel coordinates are for that framing.",
+  "balance_screen_code": "37",
+  "calibration": {
+    "segment_thr": 0.05,
+    "confidence_spread": 0.03,
+    "min_confidence": 0.3,
+    "anchors": {
+      "right_border_x": 698,
+      "band_y": [
+        150,
+        400
+      ],
+      "top_border_y": 103,
+      "band_x": [
+        150,
+        650
+      ],
+      "search": 30,
+      "border_thr": 0.45
+    },
+    "main": {
+      "x0": 542,
+      "y0": 246,
+      "w": 73,
+      "h": 160,
+      "pitch": 125,
+      "slant": 0.12,
+      "along": 18,
+      "across": 8,
+      "count": 5,
+      "decimals": 2
+    },
+    "code": {
+      "x0": 588,
+      "y0": 125,
+      "w": 34,
+      "h": 100,
+      "pitch": 84,
+      "slant": 0.12,
+      "along": 6,
+      "across": 6,
+      "count": 2
+    }
+  }
+}
