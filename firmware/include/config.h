@@ -17,6 +17,13 @@
 // SVGA (800x600) is plenty for a meter LCD at ~10 cm; raise if digits are tiny.
 #define CAPTURE_FRAMESIZE    FRAMESIZE_SVGA
 #define CAPTURE_JPEG_QUALITY 12      // 0-63, lower = better quality / bigger file
-#define FLASH_SETTLE_MS      150     // let AEC adapt after the flash LED turns on
+
+// Flash LED defaults (tunable at runtime via /settings, persisted in NVS).
+// The meter LCD sits in a dark, sealed compartment: the LED is the only light.
+// Full power at ~10 cm tends to blow out / glare on the LCD, so start mid-way.
+#define FLASH_LED_DUTY       128     // 0-255 PWM
+#define FLASH_SETTLE_MS      600     // auto-exposure needs several frames to converge from dark
+#define FLASH_LEDC_CHANNEL   7       // camera XCLK owns LEDC channel 0 / timer 0
+#define FLASH_LEDC_FREQ_HZ   5000
 
 #define MQTT_TOPIC_BASE "gridtoken"  // topics: gridtoken/<device-id>/...

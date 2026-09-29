@@ -32,6 +32,23 @@ reset again.
 - Keep the USB/power lead short and thick. Add a 470–1000 µF capacitor across
   5V/GND near the module if the brownouts persist.
 
+## Lighting (dark / sealed compartments)
+
+The white LED on GPIO 4 lights the LCD for every capture. It is PWM-driven on
+LEDC channel 7 (the camera clock owns channel 0) and is on only during a capture.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `led` | 128 / 255 | Full power at ~10 cm usually blows out an LCD. Go as low as keeps the digits crisp. |
+| `settle_ms` | 600 | LED-on time before the shot so auto-exposure/white balance converge from darkness. |
+| `exposure_mode` | auto | Switch to `manual` once tuned. The scene never changes in a sealed box, so fixed exposure/gain gives identical frames. |
+| `exposure` / `gain` | 300 / 0 | Used in manual mode (0–1200 / 0–30). |
+
+Tune from the web UI (`http://<device>/`) or directly, e.g.
+`/settings?led=90&settle=400&aec=manual&exposure=350&gain=2`. Values persist in
+NVS across reboots. Glare on the LCD window: diffuse the LED (translucent tape) or
+tilt the camera a few degrees.
+
 ## Optics & mounting tips
 
 - The stock lens focuses at ~1 m. For a meter LCD at 8–12 cm, carefully rotate the
@@ -44,6 +61,6 @@ reset again.
 
 | GPIO | Use |
 |---|---|
-| 4 | Flash LED (white) |
+| 4 | Flash LED (white), PWM via LEDC ch 7 |
 | 33 | Status LED (red, active low) |
 | 0, 5, 18–27, 32, 34–36, 39 | Camera bus |

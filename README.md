@@ -12,9 +12,12 @@ this fully on-device, with no server needed.
 
 ## What works today
 
-- Periodic and on-demand capture (flash LED, stale-frame discard, SVGA JPEG)
+- Periodic and on-demand capture, SVGA JPEG
+- **On-board LED as the light source** for dark/sealed meter compartments: PWM
+  intensity, AEC settle time, and optional fixed exposure, all tunable live from
+  the web UI and saved on the device
 - Push via **HTTPS webhook** (basic auth, pinned Let's Encrypt root) and/or **MQTT**
-- Local web UI: live preview `/`, `/capture`, `/status`, `/push`
+- Local web UI: preview + lighting sliders `/`, `/capture`, `/settings`, `/status`, `/push`
 - A [Node-RED flow](node-red/) that ingests and stores frames for dataset building
 
 ## Quick start

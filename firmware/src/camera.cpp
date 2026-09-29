@@ -4,10 +4,12 @@
 
 #include "board_pins.h"
 #include "config.h"
+#include "settings.h"
 
 bool cameraInit() {
-  pinMode(PIN_FLASH_LED, OUTPUT);
-  flashSet(false);
+  // PWM on an explicit channel/timer so it can't collide with the camera XCLK.
+  ledcAttachChannel(PIN_FLASH_LED, FLASH_LEDC_FREQ_HZ, 8, FLASH_LEDC_CHANNEL);
+  flashSet(0);
 
   camera_config_t c = {};
   c.ledc_channel = LEDC_CHANNEL_0;
@@ -53,20 +55,37 @@ bool cameraInit() {
 
   sensor_t *s = esp_camera_sensor_get();
   Serial.printf("[cam] sensor PID 0x%02x, PSRAM %s\n", s->id.PID, psramFound() ? "yes" : "no");
+  cameraApplySettings();
   return true;
 }
 
-camera_fb_t *cameraCapture(bool useFlash) {
-  if (useFlash) {
-    flashSet(true);
-    delay(FLASH_SETTLE_MS);
+void cameraApplySettings() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) return;
+  if (settings.manualExposure) {
+    // Under our own LED in a sealed box the scene never changes: fixed exposure
+    // gives identical frames every time, which is what the recogniser wants.
+    s->set_exposure_ctrl(s, 0);
+    s->set_aec_value(s, settings.exposure);
+    s->set_gain_ctrl(s, 0);
+    s->set_agc_gain(s, settings.gain);
+  } else {
+    s->set_exposure_ctrl(s, 1);
+    s->set_gain_ctrl(s, 1);
   }
-  // The first frame may have been exposed before the flash came on — drop it.
+}
+
+camera_fb_t *cameraCapture(uint8_t ledDuty) {
+  if (ledDuty > 0) {
+    flashSet(ledDuty);
+    delay(settings.settleMs);  // compartment is dark: give AEC/AWB time to converge
+  }
+  // The oldest buffered frame may predate the LED or the settled exposure — drop it.
   camera_fb_t *fb = esp_camera_fb_get();
   if (fb) esp_camera_fb_return(fb);
   fb = esp_camera_fb_get();
-  if (useFlash) flashSet(false);
+  if (ledDuty > 0) flashSet(0);
   return fb;
 }
 
-void flashSet(bool on) { digitalWrite(PIN_FLASH_LED, on ? HIGH : LOW); }
+void flashSet(uint8_t duty) { ledcWrite(PIN_FLASH_LED, duty); }

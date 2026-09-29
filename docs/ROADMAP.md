@@ -33,13 +33,16 @@ rate, days-left and low-credit alerts. It also targets segmented LCDs specifical
 ## Phase 0: Skeleton ✅ (this commit)
 
 - PlatformIO / Arduino-ESP32 3.x firmware for the AI-Thinker ESP32-CAM.
-- Capture on an interval or on demand, with the flash LED and a stale-frame discard.
+- Capture on an interval or on demand. The **on-board LED is the light source**
+  (the meter sits in a dark, sealed compartment): PWM intensity, settle time for
+  auto-exposure, and an optional fixed exposure/gain mode. Tuned live from the
+  web UI and persisted in NVS.
 - Two transports, each optional:
   - **HTTPS POST** of the JPEG to a webhook (e.g. a Node-RED `http in`), with basic
     auth and a pinned CA.
   - **MQTT**: JPEG streamed to `gridtoken/<id>/image`, a retained `status`, an LWT
     `availability`, and a `cmd/capture` command.
-- Local web: `/`, `/capture`, `/status`, `/push`.
+- Local web: `/` (preview + lighting sliders), `/capture`, `/settings`, `/status`, `/push`.
 - Node-RED example flow that stores every frame, with a placeholder recogniser.
 - CI builds the firmware on every push.
 
@@ -51,9 +54,14 @@ The hardest part of meter reading is **the photo, not the model**.
   from the LCD and blocks ambient light. Publish STL/STEP files in `hardware/`.
 - **Focus:** the OV2640 lens is fixed-focus at ~1 m. Rotate it to focus at the
   mount distance (a known ESP32-CAM trick), or use a close-focus lens variant.
-- **Lighting:** a segmented LCD plus the on-board flash usually means specular glare.
-  Try, in order: ambient light only; the flash with a diffuser; the flash
-  off-axis/reflected. Make LED intensity configurable (PWM).
+- **Lighting:** the meter sits in a **sealed, dark compartment**, so the on-board
+  LED is the only light, and that's good news: the lighting is 100% controlled
+  and repeatable. Tune it with the web UI sliders: lower the PWM until the digits
+  aren't blown out, then switch to **manual exposure** so every frame is identical.
+  If the LCD window shows a hot-spot reflection, add a diffuser (a bit of
+  translucent tape or paper over the LED) or angle the camera a few degrees.
+  The next step is to capture only the bright frame region and detect a
+  "display off / blank" state.
 - **Display behaviour:** check whether the meter shows the balance all the time,
   cycles through other screens, or blanks its backlight. Record how often each
   screen appears. This decides the capture strategy (single shot versus a burst

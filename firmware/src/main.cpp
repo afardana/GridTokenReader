@@ -9,6 +9,7 @@
 #include "config.h"
 #include "ingest.h"
 #include "net.h"
+#include "settings.h"
 #include "web.h"
 
 static volatile bool pushRequested = true;  // push once as soon as we're online
@@ -17,7 +18,7 @@ static uint32_t lastPush = 0;
 static void requestPush() { pushRequested = true; }
 
 static void captureAndPush() {
-  camera_fb_t *fb = cameraCapture(true);
+  camera_fb_t *fb = cameraCapture(settings.ledDuty);
   if (!fb) {
     Serial.println("[cam] capture failed");
     return;
@@ -35,6 +36,8 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("\nGridTokenReader %s\n", FW_VERSION);
 
+  settingsLoad();
+  Serial.printf("[cfg] %s\n", settingsJson().c_str());
   if (!cameraInit()) {
     Serial.println("[cam] restarting in 10 s");
     delay(10000);
