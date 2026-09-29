@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# GridTokenReader: store Node-RED's httpNodeAuth as the Authorization header nginx
+# adds when forwarding token-authenticated device requests (/gridtoken/*).
+# Prompts locally so the password never leaves this machine.
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+F=/etc/nginx/gridtoken/upstream-auth.conf
+read -rp "Node-RED httpNodeAuth user: " U
+read -rsp "Node-RED httpNodeAuth password: " P; echo
+B64=$(printf '%s:%s' "$U" "$P" | base64 -w0)
+unset P
+# Unknown path: 404 when the credentials are accepted, 401 when they are not.
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Basic $B64" http://127.0.0.1:1880/gridtoken/__authcheck)
+if [ "$code" = 401 ]; then echo "Node-RED rejected these credentials; nothing changed." >&2; exit 1; fi
+umask 077
+cp -p "$F" "$F.bak.$(date +%Y%m%d_%H%M%S)"
+printf '# Node-RED httpNodeAuth for GridTokenReader (written %s by gridtoken-set-upstream-auth)\nproxy_set_header Authorization "Basic %s";\n' "$(date -Is)" "$B64" > "$F.new"
+mv "$F.new" "$F"
+if nginx -t 2>/dev/null; then
+  systemctl reload nginx && echo "OK: nginx now forwards GridTokenReader requests to Node-RED."
+else
+  echo "nginx config test failed; restoring previous file." >&2
+  cp -p "$(ls -t "$F".bak.* | head -1)" "$F"; exit 1
+fi

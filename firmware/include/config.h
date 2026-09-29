@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 
 // Credentials and endpoints come from the repo-root `.env` (see .env.example),
 // turned into env_secrets.h by scripts/load_env.py at build time.
@@ -40,6 +40,11 @@
 #ifndef INGEST_CONNECT_IP
 #define INGEST_CONNECT_IP ""
 #endif
+// Preferred auth: per-device bearer token checked by the reverse proxy
+// (see docs/NGINX.md). HTTP basic auth (INGEST_USER/PASSWORD) is the fallback.
+#ifndef INGEST_TOKEN
+#define INGEST_TOKEN ""
+#endif
 #ifndef INGEST_USER
 #define INGEST_USER ""
 #endif
@@ -69,7 +74,7 @@
 #define FLASH_LED_DUTY       128     // 0-255 PWM
 #define FLASH_SETTLE_MS      600     // auto-exposure needs several frames to converge from dark
 #define FLASH_LEDC_CHANNEL   7       // camera XCLK owns LEDC channel 0 / timer 0
-#define FLASH_LEDC_FREQ_HZ   5000
+#define FLASH_LEDC_FREQ_HZ   40000   // well above line rate: 5 kHz caused rolling-shutter banding
 
 // microSD rolling buffer (1-bit mode, see storage.h). Oldest captures are
 // deleted first so at least SD_MIN_FREE_PCT of the card always stays free.

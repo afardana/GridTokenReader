@@ -26,7 +26,9 @@ this fully on-device, with no server needed.
   don't really store writes.
 - Local web UI: preview + lighting sliders `/`, `/capture`, `/settings`, `/status`,
   `/sd`, `/push`, `/update`
-- A [Node-RED flow](node-red/) that ingests and stores frames for dataset building
+- A [Node-RED flow](node-red/) that ingests frames and readings into InfluxDB, behind
+  an [nginx per-device token gate](docs/NGINX.md). A [Grafana query](deploy/grafana-available-credit.flux)
+  turns readings into "remaining credit in Rupiah" between photos.
 
 ## Quick start
 
@@ -65,7 +67,8 @@ or upload `firmware/.pio/build/esp32cam/firmware.bin` at `http://<device>/update
 ```
 firmware/     PlatformIO project (Arduino-ESP32 3.x)
 node-red/     Example Node-RED flow
-docs/         Roadmap, hardware notes, meter profiles
+docs/         Roadmap, hardware notes, meter profiles, nginx token gate
+deploy/       nginx snippets + helper, Grafana Flux query
 .env.example  Build-time configuration template (copy to .env)
 ```
 

@@ -62,10 +62,12 @@ bool ingestPostImage(const uint8_t *buf, size_t len) {
     return false;
   }
   http.setTimeout(15000);
-  if (strlen(INGEST_USER) > 0) http.setAuthorization(INGEST_USER, INGEST_PASSWORD);
+  if (strlen(INGEST_TOKEN) > 0) http.addHeader("Authorization", String("Bearer ") + INGEST_TOKEN);
+  else if (strlen(INGEST_USER) > 0) http.setAuthorization(INGEST_USER, INGEST_PASSWORD);
   http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("X-Device-Id", netDeviceId());
+  http.addHeader("X-Device-Id", netDeviceId());  // informational; a token-checking proxy overrides it
   http.addHeader("X-Firmware", FW_VERSION);
+  http.addHeader("X-Device-Status", netStatusJson());
 
   int code = http.POST(const_cast<uint8_t *>(buf), len);
   http.end();

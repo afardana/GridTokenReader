@@ -26,6 +26,7 @@ KEYS = {
     "MQTT_PASSWORD": "str",
     "INGEST_URL": "str",
     "INGEST_CONNECT_IP": "str",
+    "INGEST_TOKEN": "str",
     "INGEST_USER": "str",
     "INGEST_PASSWORD": "str",
     "OTA_PASSWORD": "str",
