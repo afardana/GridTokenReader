@@ -1,7 +1,7 @@
 // GridTokenReader — ESP32-CAM that photographs a prepaid electricity meter's
 // LCD and pushes the frame to a backend (Node-RED via MQTT and/or HTTPS).
 // Phase 0 skeleton: capture + transport only; digit recognition comes later
-// (see docs/ROADMAP.md).
+// (see docs/ROADMAP.md). Firmware updates over the air: see ota.h.
 
 #include <Arduino.h>
 
@@ -9,7 +9,9 @@
 #include "config.h"
 #include "ingest.h"
 #include "net.h"
+#include "ota.h"
 #include "settings.h"
+#include "storage.h"
 #include "web.h"
 
 static volatile bool pushRequested = true;  // push once as soon as we're online
@@ -23,11 +25,12 @@ static void captureAndPush() {
     Serial.println("[cam] capture failed");
     return;
   }
+  bool onSd = storageSaveJpeg(fb->buf, fb->len);
   bool viaMqtt = mqttPublishImage(fb->buf, fb->len);
   bool viaHttp = ingestPostImage(fb->buf, fb->len);
-  Serial.printf("[push] %ux%u %u bytes - mqtt:%s http:%s\n", (unsigned)fb->width, (unsigned)fb->height,
-                (unsigned)fb->len, mqttEnabled() ? (viaMqtt ? "ok" : "fail") : "off",
-                ingestEnabled() ? (viaHttp ? "ok" : "fail") : "off");
+  Serial.printf("[push] %ux%u %u bytes - sd:%s mqtt:%s http:%s\n", (unsigned)fb->width, (unsigned)fb->height,
+                (unsigned)fb->len, storageReady() ? (onSd ? "ok" : "fail") : "off",
+                mqttEnabled() ? (viaMqtt ? "ok" : "fail") : "off", ingestEnabled() ? (viaHttp ? "ok" : "fail") : "off");
   esp_camera_fb_return(fb);
   mqttPublishStatus();
 }
@@ -38,22 +41,30 @@ void setup() {
 
   settingsLoad();
   Serial.printf("[cfg] %s\n", settingsJson().c_str());
+  // Wi-Fi first: its RF calibration burst plus a streaming camera is the classic
+  // ESP32-CAM brownout on marginal 5 V supplies. Stagger the two current peaks.
+  netBegin(requestPush);
+  delay(WIFI_CAMERA_STAGGER_MS);
+  storageBegin();  // before the camera: the LED's LEDC attach on GPIO 4 must come last
   if (!cameraInit()) {
     Serial.println("[cam] restarting in 10 s");
     delay(10000);
     ESP.restart();
   }
-  netBegin(requestPush);
   webBegin(requestPush);
 }
 
 void loop() {
   netLoop();
   webLoop();
+  if (netWifiUp()) otaBegin();
+  otaLoop();
+  if (otaInProgress()) return;  // keep flash/CPU/Wi-Fi for the update
 
-  bool anyTransport = mqttEnabled() || ingestEnabled();
+  bool anyTransport = mqttEnabled() || ingestEnabled() || storageReady();
   bool due = pushRequested || millis() - lastPush >= CAPTURE_INTERVAL_S * 1000UL;
-  if (netWifiUp() && anyTransport && due) {
+  // Captures need Wi-Fi only for NTP-dated SD names and pushes; SD-only works offline.
+  if ((netWifiUp() || storageReady()) && anyTransport && due) {
     pushRequested = false;
     lastPush = millis();
     captureAndPush();

@@ -21,6 +21,9 @@ esptool --port /dev/cu.usbserial-XXXX flash-id
 ## Flashing
 
 With the ESP32-CAM-MB, just `pio run -t upload`. It toggles IO0/EN automatically.
+The CH340 on these boards corrupts data at ≥460800 baud, so `upload_speed` is
+230400. After the first USB flash, use OTA (`pio run -e esp32cam-ota -t upload`
+or `http://<device>/update`).
 With a bare USB-UART: tie **IO0 → GND**, reset, flash, then remove the jumper and
 reset again.
 
@@ -31,6 +34,23 @@ reset again.
   (`Brownout detector was triggered`).
 - Keep the USB/power lead short and thick. Add a 470–1000 µF capacitor across
   5V/GND near the module if the brownouts persist.
+- The firmware starts Wi-Fi 1.5 s before the camera and caps TX power at 15 dBm to
+  soften the peaks. Powered from a laptop USB port via the ESP32-CAM-MB, the
+  reference unit still browns out once on the very first boot after a USB flash
+  (full RF calibration), then runs normally. A proper supply fixes this.
+
+## microSD card
+
+- Runs in **1-bit SD mode** (CLK 14, CMD 15, D0 2). 4-bit mode would use GPIO 4 as
+  DAT1, and GPIO 4 drives the flash LED.
+- Format as **FAT32**. Cards >32 GB ship as exFAT and must be reformatted.
+- Captures go to `/captures/YYYY-MM-DD/YYYYMMDDTHHMMSSZ.jpg` (UTC). Before each
+  save, the oldest files are deleted until ≥10% of the card is free.
+- On mount, the firmware writes a probe file and checks that it appears in a real
+  directory listing. Worn-out or counterfeit cards often acknowledge writes and
+  then silently discard them. Such a card is refused, and `/sd` reports why.
+- Browse over HTTP: `/sd` (status), `/sd/list`, `/sd/list?day=YYYY-MM-DD`,
+  `/sd/file?path=/captures/...`.
 
 ## Lighting (dark / sealed compartments)
 
@@ -64,3 +84,4 @@ tilt the camera a few degrees.
 | 4 | Flash LED (white), PWM via LEDC ch 7 |
 | 33 | Status LED (red, active low) |
 | 0, 5, 18–27, 32, 34–36, 39 | Camera bus |
+| 2, 14, 15 | microSD (1-bit: D0, CLK, CMD) |

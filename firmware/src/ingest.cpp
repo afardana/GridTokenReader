@@ -14,19 +14,53 @@
 
 bool ingestEnabled() { return strlen(INGEST_URL) > 0; }
 
+// Extracts host and port from "scheme://host[:port]/path".
+static bool parseUrl(const String &url, String &host, uint16_t &port) {
+  int start = url.indexOf("://");
+  if (start < 0) return false;
+  start += 3;
+  int end = url.indexOf('/', start);
+  String authority = url.substring(start, end < 0 ? url.length() : end);
+  int colon = authority.indexOf(':');
+  host = colon < 0 ? authority : authority.substring(0, colon);
+  port = colon < 0 ? (url.startsWith("https") ? 443 : 80) : authority.substring(colon + 1).toInt();
+  return host.length() > 0;
+}
+
 bool ingestPostImage(const uint8_t *buf, size_t len) {
   if (!ingestEnabled() || !netWifiUp()) return false;
 
+  const String url = INGEST_URL;
+  const bool https = url.startsWith("https://");
   WiFiClientSecure tls;
   WiFiClient plain;
-  HTTPClient http;
-  bool https = strncmp(INGEST_URL, "https://", 8) == 0;
+  WiFiClient &client = https ? static_cast<WiFiClient &>(tls) : plain;
   if (https) tls.setCACert(INGEST_CA_CERT);
-  if (!(https ? http.begin(tls, INGEST_URL) : http.begin(plain, INGEST_URL))) {
+
+  // Optional LAN shortcut: open the socket to INGEST_CONNECT_IP ourselves (TLS
+  // SNI + cert check still use the URL host); HTTPClient then reuses it.
+  IPAddress connectIp;
+  if (strlen(INGEST_CONNECT_IP) > 0 && connectIp.fromString(INGEST_CONNECT_IP)) {
+    String host;
+    uint16_t port;
+    if (!parseUrl(url, host, port)) {
+      Serial.println("[ingest] bad INGEST_URL");
+      return false;
+    }
+    int ok = https ? tls.connect(connectIp, port, host.c_str(), INGEST_CA_CERT, nullptr, nullptr)
+                   : plain.connect(connectIp, port);
+    if (!ok) {
+      Serial.printf("[ingest] connect %s:%u (%s) failed\n", INGEST_CONNECT_IP, port, host.c_str());
+      return false;
+    }
+  }
+
+  HTTPClient http;
+  http.setReuse(true);
+  if (!http.begin(client, url)) {
     Serial.println("[ingest] bad INGEST_URL");
     return false;
   }
-
   http.setTimeout(15000);
   if (strlen(INGEST_USER) > 0) http.setAuthorization(INGEST_USER, INGEST_PASSWORD);
   http.addHeader("Content-Type", "image/jpeg");

@@ -3,6 +3,7 @@
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
 #include <time.h>
 
 #include "config.h"
@@ -36,6 +37,7 @@ void netBegin(void (*onCaptureRequest)()) {
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.setTxPower(WIFI_TX_POWER);  // lower TX peaks = fewer brownouts; raise if RSSI is poor
   Serial.printf("[wifi] %s connecting to \"%s\"\n", deviceId.c_str(), WIFI_SSID);
 
   // Real time for TLS validity checks and payload timestamps.
@@ -73,6 +75,7 @@ void netLoop() {
       Serial.printf("[wifi] connected, IP %s, RSSI %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
       if (MDNS.begin(deviceId.c_str())) {
         MDNS.addService("http", "tcp", 80);
+        if (strlen(OTA_PASSWORD) > 0) MDNS.enableArduino(3232, true);  // `pio ... -t upload` discovery
         Serial.printf("[mdns] http://%s.local/\n", deviceId.c_str());
       }
     } else {
@@ -95,11 +98,13 @@ void netLoop() {
 }
 
 String netStatusJson() {
-  char json[320];
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  char json[360];
   snprintf(json, sizeof json,
-           "{\"device\":\"%s\",\"fw\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"uptime_s\":%lu,"
-           "\"heap\":%u,\"psram\":%u,\"time\":%lld}",
-           deviceId.c_str(), FW_VERSION, WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
+           "{\"device\":\"%s\",\"fw\":\"%s\",\"build\":\"%s %s\",\"partition\":\"%s\",\"ip\":\"%s\","
+           "\"rssi\":%d,\"uptime_s\":%lu,\"heap\":%u,\"psram\":%u,\"time\":%lld}",
+           deviceId.c_str(), FW_VERSION, __DATE__, __TIME__, running ? running->label : "?",
+           WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
            (unsigned long)(millis() / 1000), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram(),
            (long long)time(nullptr));
   return json;

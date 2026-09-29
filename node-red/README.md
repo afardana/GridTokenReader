@@ -18,12 +18,15 @@ Menu → Import → select `gridtoken-flow.json` → Deploy. Then:
 - If you only use HTTP, you can delete the MQTT nodes and the `local broker` config.
 - If you only use MQTT, point `local broker` at your broker.
 
-## Firmware settings for HTTP ingest
+## Firmware settings for HTTP ingest (`.env`)
 
-```c
-#define INGEST_URL      "https://nodered.example.com/gridtoken/ingest"
-#define INGEST_USER     "..."   // settings.js httpNodeAuth user
-#define INGEST_PASSWORD "..."
+```ini
+INGEST_URL=https://nodered.example.com/gridtoken/ingest
+INGEST_USER=...          # settings.js httpNodeAuth user
+INGEST_PASSWORD=...
+# Optional: if DNS returns a public IP but the proxy is on the LAN, connect here
+# directly. TLS SNI + certificate validation still use the URL's hostname.
+INGEST_CONNECT_IP=192.168.1.10
 ```
 
 If Node-RED sits behind nginx, a frame is ~40–120 KB, so the default

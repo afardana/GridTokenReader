@@ -30,7 +30,7 @@ rate, days-left and low-credit alerts. It also targets segmented LCDs specifical
 
 ---
 
-## Phase 0: Skeleton ✅ (this commit)
+## Phase 0: Skeleton ✅
 
 - PlatformIO / Arduino-ESP32 3.x firmware for the AI-Thinker ESP32-CAM.
 - Capture on an interval or on demand. The **on-board LED is the light source**
@@ -42,9 +42,26 @@ rate, days-left and low-credit alerts. It also targets segmented LCDs specifical
     auth and a pinned CA.
   - **MQTT**: JPEG streamed to `gridtoken/<id>/image`, a retained `status`, an LWT
     `availability`, and a `cmd/capture` command.
-- Local web: `/` (preview + lighting sliders), `/capture`, `/settings`, `/status`, `/push`.
+- Local web: `/` (preview + lighting sliders), `/capture`, `/settings`, `/status`, `/sd`, `/push`.
+- **OTA from day one** (verified on hardware): ArduinoOTA with PBKDF2 auth
+  (`pio run -e esp32cam-ota -t upload`), plus a browser/`curl` uploader at
+  `/update` (basic auth, rejects non-app images). Two 1.9 MB app slots.
+- Config from a git-ignored `.env` → generated header (secrets never on compiler
+  command lines).
+- **microSD rolling buffer** in 1-bit mode (GPIO 4 stays free for the LED): dated
+  folders, oldest-first deletion to keep ≥10% free, and a write self-test that
+  detects cards which silently discard writes.
+- Brownout mitigation: Wi-Fi starts before the camera, and TX power is capped at 15 dBm.
 - Node-RED example flow that stores every frame, with a placeholder recogniser.
 - CI builds the firmware on every push.
+
+## Phase 0.5: Store-and-forward (small, next)
+
+- Keep SD captures marked "pending" when the HTTP/MQTT push fails, and re-send
+  them oldest-first once the backend is reachable. Readings survive network and
+  Node-RED outages.
+- Expose the SD history in the web UI (a thumbnail strip per day), and allow
+  bulk-downloading a day as a dataset.
 
 ## Phase 1: Mount, optics and a dataset (1–2 weekends)
 
@@ -76,6 +93,8 @@ The hardest part of meter reading is **the photo, not the model**.
 **Exit criteria:** a fixed mount, and 95%+ of frames where a human can read every
 digit without zooming.
 
+Reference meter: **SMI-810 V2**. See [meters/smi-810-v2.md](meters/smi-810-v2.md).
+
 ## Phase 2: Recognition in the backend (MVP readings)
 
 Iterate on recognition where it's cheap to change, i.e. in Node-RED/Python, not in
@@ -93,7 +112,10 @@ firmware.
      costs money, needs the internet, and isn't self-sufficient.
 - **Plausibility filter**, which is what makes it "never lie":
   - The balance may only **decrease** slowly, bounded by main-breaker capacity ×
-    elapsed time (e.g. 5.5 kVA ≈ max 5.5 kWh/h).
+    elapsed time (e.g. a 25 A breaker at 230 V ≈ max 5.75 kWh/h).
+  - Only accept frames showing the balance screen. On the SMI-810 the small
+    display-code field identifies the screen (it shows `37` on the balance
+    screen in the reference photo), so recognise that code too.
   - An **increase** is only accepted as a top-up (a jump above a threshold, confirmed
     on 2 consecutive frames).
   - Any per-digit confidence below threshold means the reading is `unknown`.
@@ -126,7 +148,7 @@ a phone.
 | Area | Feature |
 |---|---|
 | Install | **ESP Web Tools** flasher on GitHub Pages (flash from Chrome via USB, no toolchain). Release binaries via CI. |
-| Provisioning | Wi-Fi setup via a **captive-portal AP** (and/or Improv-Serial during web flashing). No `secrets.h`. |
+| Provisioning | Wi-Fi setup via a **captive-portal AP** (and/or Improv-Serial during web flashing). No `.env`, no rebuild. |
 | Setup UI | On-device web app: a live preview, **drag boxes over the digits** to define the ROI, a test-read button, and flash/exposure sliders. |
 | Integrations | MQTT with **Home Assistant discovery**, the generic HTTP webhook (Node-RED), a REST/JSON API, and Prometheus `/metrics`. All optional. |
 | Standalone | On-device history (LittleFS ring buffer), a mini chart, days-left, and **direct alerts** (Telegram bot / ntfy / webhook) with no server at all. |
@@ -136,6 +158,7 @@ a phone.
 | Meter profiles | Presets per meter model: digit count, decimal position, LCD type. Community-contributed via PRs. |
 | i18n | English + Bahasa Indonesia UI and docs (prepaid "token listrik" meters are the primary audience). |
 | Hardware | STL mounts per meter family, a BOM, a wiring/power guide, and optional battery/deep-sleep mode. |
+| Extra signals | Read the meter's **status-credit LED** (green = OK, blinking red = low) from the same frame, and optionally count the **1600 imp/kWh pulse LED** with a photodiode on a spare GPIO for real-time power (W) between readings. |
 
 ## Phase 5: Community & model lifecycle
 

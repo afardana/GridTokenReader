@@ -9,7 +9,7 @@ Settings settings = {FLASH_LED_DUTY, FLASH_SETTLE_MS, false, 300, 0};
 static Preferences prefs;
 
 void settingsLoad() {
-  prefs.begin("gridtoken", true);
+  prefs.begin("gridtoken", false);  // RW so the namespace exists on first boot
   settings.ledDuty = prefs.getUChar("led", settings.ledDuty);
   settings.settleMs = prefs.getUShort("settle", settings.settleMs);
   settings.manualExposure = prefs.getBool("aec_man", settings.manualExposure);

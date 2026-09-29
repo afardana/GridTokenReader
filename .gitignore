@@ -5,7 +5,7 @@
 .vscode/*
 !.vscode/extensions.json
 
-# Local secrets — never commit
+# Legacy local secrets file — never commit
 firmware/include/secrets.h
 
 # OS / editor
@@ -15,3 +15,11 @@ firmware/include/secrets.h
 # Captured images / datasets (keep out of git; use releases or LFS)
 captures/
 dataset/
+
+# Local environment (Wi-Fi credentials etc.) — never commit
+.env
+.env.*
+!.env.example
+
+# Local flash dumps (may contain Wi-Fi credentials)
+backups/

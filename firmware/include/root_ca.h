@@ -2,7 +2,7 @@
 
 // ISRG Root X1 (Let's Encrypt), valid until 2035-06-04.
 // SHA-256: 96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6
-// Used for HTTPS ingest when INGEST_CA_CERT is not overridden in secrets.h.
+// Used for HTTPS ingest unless INGEST_CA_CERT is defined (see config.h).
 static const char ROOT_CA_ISRG_X1[] = R"PEM(
 -----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw

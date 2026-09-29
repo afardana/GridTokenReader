@@ -16,8 +16,16 @@ this fully on-device, with no server needed.
 - **On-board LED as the light source** for dark/sealed meter compartments: PWM
   intensity, AEC settle time, and optional fixed exposure, all tunable live from
   the web UI and saved on the device
-- Push via **HTTPS webhook** (basic auth, pinned Let's Encrypt root) and/or **MQTT**
-- Local web UI: preview + lighting sliders `/`, `/capture`, `/settings`, `/status`, `/push`
+- Push via **HTTPS webhook** (basic auth, pinned Let's Encrypt root, optional LAN
+  IP override) and/or **MQTT**
+- **OTA updates from day one**: `pio run -e esp32cam-ota -t upload` over Wi-Fi, or
+  upload `firmware.bin` in the browser at `/update`. Both are password-protected, and
+  the uploader rejects `factory.bin`/bootloader images.
+- **microSD rolling buffer**: every capture is saved in dated folders, and the oldest
+  are deleted automatically to keep ≥10% free. A self-test refuses cards that
+  don't really store writes.
+- Local web UI: preview + lighting sliders `/`, `/capture`, `/settings`, `/status`,
+  `/sd`, `/push`, `/update`
 - A [Node-RED flow](node-red/) that ingests and stores frames for dataset building
 
 ## Quick start
@@ -26,13 +34,21 @@ Requirements: an AI-Thinker ESP32-CAM (with PSRAM) + an ESP32-CAM-MB USB board,
 and [PlatformIO](https://platformio.org/install/cli).
 
 ```bash
+cp .env.example .env          # Wi-Fi, MQTT and/or INGEST_URL, OTA_PASSWORD (git-ignored)
 cd firmware
-cp include/secrets.example.h include/secrets.h   # set Wi-Fi + MQTT and/or INGEST_URL
-pio run -t upload
+pio run -t upload             # first flash over USB
 pio device monitor
 ```
 
 Then open `http://gridtoken-xxxxxx.local/` or the IP printed on the serial console.
+After that, update over Wi-Fi:
+
+```bash
+pio run -e esp32cam-ota -t upload      # uses OTA_HOST + OTA_PASSWORD from .env
+```
+
+or upload `firmware/.pio/build/esp32cam/firmware.bin` at `http://<device>/update`
+(user `admin`, password `OTA_PASSWORD`).
 
 ## MQTT topics
 
@@ -49,7 +65,8 @@ Then open `http://gridtoken-xxxxxx.local/` or the IP printed on the serial conso
 ```
 firmware/     PlatformIO project (Arduino-ESP32 3.x)
 node-red/     Example Node-RED flow
-docs/         Roadmap, hardware notes
+docs/         Roadmap, hardware notes, meter profiles
+.env.example  Build-time configuration template (copy to .env)
 ```
 
 ## Contributing
