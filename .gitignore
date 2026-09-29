@@ -1,0 +1,17 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/*
+!.vscode/extensions.json
+
+# Local secrets — never commit
+firmware/include/secrets.h
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Captured images / datasets (keep out of git; use releases or LFS)
+captures/
+dataset/

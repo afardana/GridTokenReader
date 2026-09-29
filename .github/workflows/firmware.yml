@@ -1,0 +1,31 @@
+name: firmware
+
+on:
+  push:
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  pull_request:
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install platformio
+      - run: pio run -d firmware
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gridtokenreader-esp32cam
+          path: |
+            firmware/.pio/build/esp32cam/firmware.bin
+            firmware/.pio/build/esp32cam/firmware.factory.bin
