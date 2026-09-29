@@ -125,6 +125,10 @@ firmware.
 - **Derived metrics:** burn rate (kWh/day), **days of credit left**, top-up history,
   and a "top up by" date.
 
+- **Backlight-off alert:** when frames arrive with `X-Capture.light = led` (the
+  SMI-810 keeps its backlight off after a power cut until a key is pressed), send
+  a "press a key on the meter" notification.
+
 **Exit criteria:** 2 weeks of readings at 99%+ accuracy (or explicitly `unknown`),
 and zero false top-ups.
 

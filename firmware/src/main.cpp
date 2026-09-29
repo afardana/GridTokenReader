@@ -20,16 +20,20 @@ static uint32_t lastPush = 0;
 static void requestPush() { pushRequested = true; }
 
 static void captureAndPush() {
-  camera_fb_t *fb = cameraCapture(settings.ledDuty);
+  CaptureInfo info;
+  camera_fb_t *fb = cameraCaptureAuto(info);
   if (!fb) {
     Serial.println("[cam] capture failed");
     return;
   }
+  char captureJson[80];
+  snprintf(captureJson, sizeof captureJson, "{\"light\":\"%s\",\"lcd_luma\":%d}",
+           info.usedLed ? "led" : "backlight", info.lcdLuma);
   bool onSd = storageSaveJpeg(fb->buf, fb->len);
   bool viaMqtt = mqttPublishImage(fb->buf, fb->len);
-  bool viaHttp = ingestPostImage(fb->buf, fb->len);
-  Serial.printf("[push] %ux%u %u bytes - sd:%s mqtt:%s http:%s\n", (unsigned)fb->width, (unsigned)fb->height,
-                (unsigned)fb->len, storageReady() ? (onSd ? "ok" : "fail") : "off",
+  bool viaHttp = ingestPostImage(fb->buf, fb->len, captureJson);
+  Serial.printf("[push] %ux%u %u bytes %s - sd:%s mqtt:%s http:%s\n", (unsigned)fb->width, (unsigned)fb->height,
+                (unsigned)fb->len, captureJson, storageReady() ? (onSd ? "ok" : "fail") : "off",
                 mqttEnabled() ? (viaMqtt ? "ok" : "fail") : "off", ingestEnabled() ? (viaHttp ? "ok" : "fail") : "off");
   esp_camera_fb_return(fb);
   mqttPublishStatus();

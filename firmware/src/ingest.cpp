@@ -27,7 +27,7 @@ static bool parseUrl(const String &url, String &host, uint16_t &port) {
   return host.length() > 0;
 }
 
-bool ingestPostImage(const uint8_t *buf, size_t len) {
+bool ingestPostImage(const uint8_t *buf, size_t len, const String &captureJson) {
   if (!ingestEnabled() || !netWifiUp()) return false;
 
   const String url = INGEST_URL;
@@ -68,6 +68,7 @@ bool ingestPostImage(const uint8_t *buf, size_t len) {
   http.addHeader("X-Device-Id", netDeviceId());  // informational; a token-checking proxy overrides it
   http.addHeader("X-Firmware", FW_VERSION);
   http.addHeader("X-Device-Status", netStatusJson());
+  http.addHeader("X-Capture", captureJson);
 
   int code = http.POST(const_cast<uint8_t *>(buf), len);
   http.end();

@@ -25,6 +25,10 @@ label{display:flex;gap:8px;align-items:center;margin:6px 0}input[type=range]{fle
 <p><button onclick="snap()">Capture</button><a href="/push">Push now</a><a href="/status">Status</a><a href="/sd">SD card</a><a href="/update">Firmware update</a></p>
 <img id="img" alt="capture">
 <fieldset><legend>Lighting &amp; exposure (saved on the device)</legend>
+<label>Light <select id="light"><option value="auto">auto: backlight, LED if LCD is dark</option>
+<option value="backlight">backlight only</option><option value="led">LED always</option></select></label>
+<label>Dark below <input type="range" id="bl_luma" min="0" max="255"><output id="bl_luma_o"></output></label>
+<p id="info"></p>
 <label>LED <input type="range" id="led" min="0" max="255"><output id="led_o"></output></label>
 <label>Settle ms <input type="range" id="settle" min="0" max="3000" step="50"><output id="settle_o"></output></label>
 <label><input type="checkbox" id="manual"> Manual exposure (recommended once tuned: the box is lit only by the LED)</label>
@@ -33,11 +37,13 @@ label{display:flex;gap:8px;align-items:center;margin:6px 0}input[type=range]{fle
 <button onclick="save()">Save &amp; capture</button></fieldset>
 <script>
 const $=id=>document.getElementById(id);
-function snap(){$('img').src='/capture?t='+Date.now()}
-['led','settle','exposure','gain'].forEach(k=>$(k).oninput=()=>$(k+'_o').value=$(k).value);
-function show(s){$('led').value=s.led;$('settle').value=s.settle_ms;$('exposure').value=s.exposure;$('gain').value=s.gain;
- $('manual').checked=s.exposure_mode==='manual';['led','settle','exposure','gain'].forEach(k=>$(k+'_o').value=$(k).value)}
-async function save(){const q=new URLSearchParams({led:$('led').value,settle:$('settle').value,
+const R=['bl_luma','led','settle','exposure','gain'];
+async function snap(){const r=await fetch('/capture?t='+Date.now());$('img').src=URL.createObjectURL(await r.blob());
+ $('info').textContent='lit by '+r.headers.get('X-Light')+', LCD luma '+r.headers.get('X-LCD-Luma')}
+R.forEach(k=>$(k).oninput=()=>$(k+'_o').value=$(k).value);
+function show(s){$('light').value=s.light;$('bl_luma').value=s.backlight_min_luma;$('led').value=s.led;$('settle').value=s.settle_ms;$('exposure').value=s.exposure;$('gain').value=s.gain;
+ $('manual').checked=s.exposure_mode==='manual';R.forEach(k=>$(k+'_o').value=$(k).value)}
+async function save(){const q=new URLSearchParams({light:$('light').value,bl_luma:$('bl_luma').value,led:$('led').value,settle:$('settle').value,
  aec:$('manual').checked?'manual':'auto',exposure:$('exposure').value,gain:$('gain').value});
  show(await (await fetch('/settings?'+q)).json());snap()}
 fetch('/settings').then(r=>r.json()).then(show);snap();
@@ -49,14 +55,25 @@ static long argOr(const char *name, long fallback, long lo, long hi) {
 }
 
 static void handleCapture() {
-  // ?led=0-255 overrides the saved intensity for this shot (?flash=0 = no LED).
-  uint8_t duty = server.arg("flash") == "0" ? 0 : argOr("led", settings.ledDuty, 0, 255);
-  camera_fb_t *fb = cameraCapture(duty);
+  // Default: the configured light mode (auto = backlight, LED fallback).
+  // ?led=0-255 forces that LED intensity for this shot; ?flash=0 forces no LED.
+  CaptureInfo info;
+  camera_fb_t *fb;
+  if (server.hasArg("led") || server.arg("flash") == "0") {
+    uint8_t duty = server.arg("flash") == "0" ? 0 : argOr("led", settings.ledDuty, 0, 255);
+    fb = cameraCapture(duty);
+    info.usedLed = duty > 0;
+    info.lcdLuma = cameraRegionLuma(fb);
+  } else {
+    fb = cameraCaptureAuto(info);
+  }
   if (!fb) {
     server.send(503, "text/plain", "capture failed");
     return;
   }
   server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("X-Light", info.usedLed ? "led" : "backlight");
+  server.sendHeader("X-LCD-Luma", String(info.lcdLuma));
   server.setContentLength(fb->len);
   server.send(200, "image/jpeg", "");
   server.client().write(fb->buf, fb->len);
@@ -64,9 +81,15 @@ static void handleCapture() {
 }
 
 // GET /settings                  -> current settings JSON
-// GET /settings?led=..&settle=..&aec=auto|manual&exposure=..&gain=..  -> update + save
+// GET /settings?light=auto|backlight|led&bl_luma=..&led=..&settle=..&aec=auto|manual&exposure=..&gain=..
+//                                -> update + save
 static void handleSettings() {
   if (server.args() > 0) {
+    if (server.hasArg("light")) {
+      String m = server.arg("light");
+      settings.lightMode = m == "backlight" ? LIGHT_BACKLIGHT : m == "led" ? LIGHT_LED : LIGHT_AUTO;
+    }
+    settings.backlightMinLuma = argOr("bl_luma", settings.backlightMinLuma, 0, 255);
     settings.ledDuty = argOr("led", settings.ledDuty, 0, 255);
     settings.settleMs = argOr("settle", settings.settleMs, 0, 5000);
     if (server.hasArg("aec")) settings.manualExposure = server.arg("aec") == "manual";

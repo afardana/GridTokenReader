@@ -72,6 +72,9 @@
 // The meter LCD sits in a dark, sealed compartment: the LED is the only light.
 // Full power at ~10 cm tends to blow out / glare on the LCD, so start mid-way.
 #define FLASH_LED_DUTY       128     // 0-255 PWM
+// AUTO light mode: below this mean luma (0-255) in the LCD region the meter's
+// backlight is considered off and the LED is used. Backlit SMI-810 measures ~108.
+#define BACKLIGHT_MIN_LUMA   60
 #define FLASH_SETTLE_MS      600     // auto-exposure needs several frames to converge from dark
 #define FLASH_LEDC_CHANNEL   7       // camera XCLK owns LEDC channel 0 / timer 0
 #define FLASH_LEDC_FREQ_HZ   40000   // well above line rate: 5 kHz caused rolling-shutter banding

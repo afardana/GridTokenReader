@@ -54,18 +54,26 @@ reset again.
 
 ## Lighting (dark / sealed compartments)
 
-The white LED on GPIO 4 lights the LCD for every capture. It is PWM-driven on
-LEDC channel 7 (the camera clock owns channel 0) and is on only during a capture.
+**Light mode `auto` (default):** each capture is first taken by the meter's own
+LCD backlight, with no glare. The device decodes a 1/8-scale copy, measures the
+mean brightness of the central LCD region, and if it is below `backlight_min_luma`
+(the backlight is off) it reshoots with the white LED. `backlight` never uses the
+LED, and `led` always does. Every upload reports `X-Capture: {"light":"backlight|led","lcd_luma":N}`.
+
+The white LED on GPIO 4 is PWM-driven at 40 kHz on LEDC channel 7 (the camera clock
+owns channel 0; 5 kHz caused rolling-shutter banding) and is on only during a capture.
 
 | Setting | Default | Notes |
 |---|---|---|
+| `light` | auto | `auto` / `backlight` / `led` (see above). |
+| `backlight_min_luma` | 60 | A backlit SMI-810 LCD measures ~108; a dark box ~15–30. |
 | `led` | 128 / 255 | Full power at ~10 cm usually blows out an LCD. Go as low as keeps the digits crisp. |
 | `settle_ms` | 600 | LED-on time before the shot so auto-exposure/white balance converge from darkness. |
 | `exposure_mode` | auto | Switch to `manual` once tuned. The scene never changes in a sealed box, so fixed exposure/gain gives identical frames. |
 | `exposure` / `gain` | 300 / 0 | Used in manual mode (0–1200 / 0–30). |
 
 Tune from the web UI (`http://<device>/`) or directly, e.g.
-`/settings?led=90&settle=400&aec=manual&exposure=350&gain=2`. Values persist in
+`/settings?light=auto&bl_luma=60&led=90&settle=400&aec=manual&exposure=350&gain=2`. Values persist in
 NVS across reboots. Glare on the LCD window: diffuse the LED (translucent tape) or
 tilt the camera a few degrees.
 

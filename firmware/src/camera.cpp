@@ -1,6 +1,7 @@
 #include "camera.h"
 
 #include <Arduino.h>
+#include <jpeg_decoder.h>
 
 #include "board_pins.h"
 #include "config.h"
@@ -75,11 +76,13 @@ void cameraApplySettings() {
   }
 }
 
+static bool ledWasOn = false;
+
 camera_fb_t *cameraCapture(uint8_t ledDuty) {
-  if (ledDuty > 0) {
-    flashSet(ledDuty);
-    delay(settings.settleMs);  // compartment is dark: give AEC/AWB time to converge
-  }
+  if (ledDuty > 0) flashSet(ledDuty);
+  // Let AEC/AWB converge whenever the lighting changes (LED on, or first shot after it).
+  if (ledDuty > 0 || ledWasOn) delay(settings.settleMs);
+  ledWasOn = ledDuty > 0;
   // The oldest buffered frame may predate the LED or the settled exposure — drop it.
   camera_fb_t *fb = esp_camera_fb_get();
   if (fb) esp_camera_fb_return(fb);
@@ -89,3 +92,50 @@ camera_fb_t *cameraCapture(uint8_t ledDuty) {
 }
 
 void flashSet(uint8_t duty) { ledcWrite(PIN_FLASH_LED, duty); }
+
+int cameraRegionLuma(const camera_fb_t *fb) {
+  if (!fb || fb->format != PIXFORMAT_JPEG) return -1;
+  const uint16_t w = (fb->width + 7) / 8, h = (fb->height + 7) / 8;
+  const size_t outSize = (size_t)w * h * 3;
+  uint8_t *rgb = (uint8_t *)ps_malloc(outSize);
+  if (!rgb) return -1;
+  esp_jpeg_image_cfg_t cfg = {};
+  cfg.indata = fb->buf;
+  cfg.indata_size = fb->len;
+  cfg.outbuf = rgb;
+  cfg.outbuf_size = outSize;
+  cfg.out_format = JPEG_IMAGE_FORMAT_RGB888;
+  cfg.out_scale = JPEG_IMAGE_SCALE_1_8;
+  esp_jpeg_image_output_t out = {};
+  int luma = -1;
+  if (esp_jpeg_decode(&cfg, &out) == ESP_OK && out.width && out.height) {
+    // Central 60% x 50%: where the LCD sits in a correctly aimed frame.
+    const int x0 = out.width / 5, x1 = out.width * 4 / 5, y0 = out.height / 4, y1 = out.height * 3 / 4;
+    uint32_t sum = 0, n = 0;
+    for (int y = y0; y < y1; y++) {
+      const uint8_t *p = rgb + ((size_t)y * out.width + x0) * 3;
+      for (int x = x0; x < x1; x++, p += 3, n++) sum += (p[0] + 2 * p[1] + p[2]) / 4;  // G in the middle either way
+    }
+    luma = n ? sum / n : -1;
+  }
+  free(rgb);
+  return luma;
+}
+
+camera_fb_t *cameraCaptureAuto(CaptureInfo &info) {
+  info = CaptureInfo();
+  if (settings.lightMode == LIGHT_LED) {
+    info.usedLed = settings.ledDuty > 0;
+    return cameraCapture(settings.ledDuty);
+  }
+  camera_fb_t *fb = cameraCapture(0);
+  info.lcdLuma = cameraRegionLuma(fb);
+  if (settings.lightMode == LIGHT_BACKLIGHT || !fb || settings.ledDuty == 0 ||
+      info.lcdLuma < 0 || info.lcdLuma >= settings.backlightMinLuma) {
+    return fb;
+  }
+  // Backlight is off (e.g. after a blackout): light the LCD ourselves.
+  esp_camera_fb_return(fb);
+  info.usedLed = true;
+  return cameraCapture(settings.ledDuty);
+}
