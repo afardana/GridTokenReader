@@ -29,11 +29,11 @@ How it works:
 4. **Decode:** lit patterns map to digits, and leading blanks are allowed. The value
    has a fixed number of decimals (SMI-810: 2). The screen code must match
    `balance_screen_code` (SMI-810: `37`), or the frame is ignored.
-5. **Threshold and confidence:** the lit/unlit threshold is set per frame, in the
-   middle of the widest gap between the sorted segment values (only gaps starting
-   below 0.15 count, since unlit and ghost segments live there). This way it doesn't
-   depend on focus or exposure. Confidence = gap width / `confidence_gap`, capped
-   at 1; below `min_confidence` the result is `ok: false`. `segment_thr` is only
+5. **Threshold and confidence:** the lit/unlit threshold is set per frame. Unlit and
+   ghost segments form a tight cluster near 0; lit ones spread out above it (glare
+   can weaken a lit stroke a lot). The threshold is the middle of the first gap of
+   ≥0.03 above that cluster, so it doesn't depend on focus or exposure.
+   Confidence = gap width / `confidence_gap`, capped at 1; below `min_confidence` the result is `ok: false`. `segment_thr` is only
    the fallback when a frame has no gap at all.
 
 ## Calibrating a new installation

@@ -125,17 +125,16 @@ def read_group(dark, group, tf):
     return out[::-1]  # left-to-right
 
 
-def split_threshold(values, fallback, low_max=0.15):
-    """Per-frame lit/unlit threshold: the middle of the widest gap between the
-    sorted segment darkness values, looking only at gaps that start below
-    `low_max` (unlit and ghost segments live there whatever the focus).
-    Returns (threshold, gap)."""
+def split_threshold(values, fallback, low_max=0.15, min_gap=0.03):
+    """Per-frame lit/unlit threshold. Unlit and ghost segments form a tight cluster
+    near 0 whatever the focus; lit ones are spread out above it (glare can weaken
+    a lit stroke a lot). So take the first gap of at least `min_gap` above the
+    unlit cluster, not the widest gap. Returns (threshold, gap)."""
     v = sorted(values)
-    best = (0.0, fallback)
     for lo, hi in zip(v, v[1:]):
-        if lo < low_max and hi - lo > best[0]:
-            best = (hi - lo, (lo + hi) / 2.0)
-    return best[1], best[0]
+        if lo < low_max and hi - lo >= min_gap:
+            return (lo + hi) / 2.0, hi - lo
+    return fallback, 0.0
 
 
 def classify(positions, thr):
