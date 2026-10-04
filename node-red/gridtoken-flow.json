@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "GridTokenReader",
         "disabled": false,
-        "info": "Prepaid meter camera (github.com/afardana/GridTokenReader).\n\nEndpoints sit behind the nginx token gate (docs/NGINX.md): a per-device bearer token is checked there and mapped to X-Device-Id, and nginx adds httpNodeAuth. Frames: /var/lib/gridtoken/frames (30-day retention). InfluxDB: gridtoken_ingest (device health), gridtoken_recognition (every recogniser result + plausibility verdict), pln_prepaid (kWh readings).\n\nShadow mode until GRIDTOKEN_PUBLISH=true (tab env).",
+        "info": "Prepaid meter camera (github.com/afardana/GridTokenReader).\n\nEndpoints sit behind the nginx token gate (docs/NGINX.md): a per-device bearer token is checked there and mapped to X-Device-Id, and nginx adds httpNodeAuth. Frames: /var/lib/gridtoken/frames (30-day retention). InfluxDB: gridtoken_ingest (device health), gridtoken_recognition (every recogniser result + plausibility verdict), pln_prepaid (kWh readings), pln_prepaid_est (estimate between readings, every 5 min).\n\nShadow mode until GRIDTOKEN_PUBLISH=true (tab env).",
         "env": [
             {
                 "name": "GRIDTOKEN_FRAMES",
@@ -34,6 +34,31 @@
             {
                 "name": "GRIDTOKEN_TELEGRAM_CHAT",
                 "value": "",
+                "type": "str"
+            },
+            {
+                "name": "GRIDTOKEN_POWER_MEASUREMENT",
+                "value": "",
+                "type": "str"
+            },
+            {
+                "name": "GRIDTOKEN_EST_TOL_KWH",
+                "value": "0.2",
+                "type": "str"
+            },
+            {
+                "name": "GRIDTOKEN_EST_TOL_FRAC",
+                "value": "0.1",
+                "type": "str"
+            },
+            {
+                "name": "GRIDTOKEN_PRICE",
+                "value": "0",
+                "type": "str"
+            },
+            {
+                "name": "GRIDTOKEN_LOW_KWH",
+                "value": "0",
                 "type": "str"
             }
         ]
@@ -178,10 +203,89 @@
         "y": 80,
         "wires": [
             [
-                "gtr0fnevaluate1"
+                "gtr0fnstashq001"
             ],
             [],
             []
+        ]
+    },
+    {
+        "id": "gtr0fnstashq001",
+        "type": "function",
+        "z": "gtr0tab00000001",
+        "name": "estimate query",
+        "func": "// Keep the recogniser's result and ask InfluxDB for the breaker-based estimate.\ntry { msg.recog = JSON.parse(msg.payload); } catch (e) { msg.recog = { ok: false, reason: 'bad recogniser output' }; }\nconst power = env.get('GRIDTOKEN_POWER_MEASUREMENT');\nif (!power) { msg.payload = []; return [null, msg]; }   // no power series: plain plausibility\nmsg.query = estimateFlux('my-bucket', power, false);\nreturn [msg, null];\n\n// Flux: last pln_prepaid reading (the anchor), grid energy used since then, and\n// optionally the 7-day average daily use. One row: {anchor, anchor_ns, used[, daily]}.\nfunction estimateFlux(bucket, power, withDaily) {\n    const src = `from(bucket: \"${bucket}\")`;\n    const pw = `|> filter(fn: (r) => r._measurement == \"${power}\" and r._field == \"value\") |> group() |> integral(unit: 1h) |> findRecord(fn: (key) => true, idx: 0)`;\n    return `import \"array\"\nimport \"date\"\na = ${src} |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"pln_prepaid\" and r._field == \"kwh\")\n  |> group() |> sort(columns: [\"_time\"]) |> last() |> findRecord(fn: (key) => true, idx: 0)\nt0 = if exists a._time then a._time else date.sub(d: 1m, from: now())\nu = ${src} |> range(start: t0) ${pw}\n${withDaily ? `w = ${src} |> range(start: -7d) ${pw}` : ''}\narray.from(rows: [{\n  anchor: if exists a._value then a._value else -1.0,\n  anchor_ns: if exists a._time then int(v: a._time) else 0,\n  used: if exists u._value then u._value / 1000.0 else 0.0${withDaily ? ', daily: if exists w._value then w._value / 7000.0 else 0.0' : ''}\n}])`;\n}\n\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1460,
+        "y": 80,
+        "wires": [
+            [
+                "gtr0influxin001"
+            ],
+            [
+                "gtr0fnevaluate1"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0influxin001",
+        "type": "influxdb in",
+        "z": "gtr0tab00000001",
+        "influxdb": "gtr0influxcfg01",
+        "name": "anchor + used",
+        "query": "",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "org": "my-org",
+        "x": 1660,
+        "y": 80,
+        "wires": [
+            [
+                "gtr0fnevaluate1"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0catch000001",
+        "type": "catch",
+        "z": "gtr0tab00000001",
+        "name": "query failed",
+        "scope": [
+            "gtr0influxin001"
+        ],
+        "uncaught": false,
+        "x": 1470,
+        "y": 130,
+        "wires": [
+            [
+                "gtr0fnqfail0001"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0fnqfail0001",
+        "type": "function",
+        "z": "gtr0tab00000001",
+        "name": "continue without estimate",
+        "func": "// InfluxDB query failed: carry on without the estimate rather than dropping the frame.\nnode.warn('estimate query failed: ' + (msg.error && msg.error.message));\nmsg.payload = [];\nreturn msg.recog ? msg : null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1700,
+        "y": 130,
+        "wires": [
+            [
+                "gtr0fnevaluate1"
+            ]
         ]
     },
     {
@@ -189,7 +293,7 @@
         "type": "function",
         "z": "gtr0tab00000001",
         "name": "plausibility",
-        "func": "// Plausibility gate for camera readings. The balance only goes down, at most\n// as fast as the supply allows, and only jumps up on a token top-up (confirmed\n// by the next frame). Everything is logged to gridtoken_recognition; accepted\n// readings go to pln_prepaid only when GRIDTOKEN_PUBLISH is \"true\".\nlet r;\ntry { r = JSON.parse(msg.payload); } catch (e) { r = { ok: false, reason: 'bad recogniser output' }; }\nconst dev = msg.device;\nconst now = msg.ts || Date.now();\nconst maxKw = Number(env.get('GRIDTOKEN_MAX_KW') || 5.75);\nconst topupMin = Number(env.get('GRIDTOKEN_TOPUP_MIN_KWH') || 5);\nconst publish = String(env.get('GRIDTOKEN_PUBLISH')) === 'true';\nconst key = 'gt_state_' + dev;\nconst st = flow.get(key) || { last: null, pending: null, rejects: null };\nconst same = (a, b) => Math.abs(a - b) < 0.015;\nlet verdict = 'unreadable', reason = r.reason || null, topup = null;\n\nif (r.ok && typeof r.kwh === 'number') {\n    const k = r.kwh;\n    const accept = why => { st.last = { kwh: k, ts: now }; st.pending = null; st.rejects = null; verdict = 'accepted'; reason = why; };\n    const hold = why => { st.pending = { kwh: k, ts: now }; verdict = 'pending'; reason = why; };\n    if (!st.last) {\n        if (st.pending && same(st.pending.kwh, k)) accept('baseline');\n        else hold('baseline: waiting for a confirming frame');\n    } else {\n        const hours = Math.max(0, (now - st.last.ts) / 3.6e6);\n        const drop = st.last.kwh - k;\n        if (drop >= -0.005 && drop <= maxKw * hours + 0.02) {\n            accept(null);\n        } else if (-drop >= topupMin) {\n            if (st.pending && same(st.pending.kwh, k)) { topup = +(k - st.last.kwh).toFixed(2); accept('topup'); }\n            else hold('top-up: waiting for a confirming frame');\n        } else {\n            verdict = 'rejected';\n            reason = drop > 0 ? `drop ${drop.toFixed(2)} kWh in ${hours.toFixed(2)} h exceeds ${maxKw} kW`\n                              : `rise ${(-drop).toFixed(2)} kWh is too small for a top-up`;\n            // A wrong baseline must not lock us out: 6 identical rejected reads (~30 min) re-anchor.\n            st.rejects = st.rejects && same(st.rejects.kwh, k) ? { kwh: k, n: st.rejects.n + 1 } : { kwh: k, n: 1 };\n            if (st.rejects.n >= 6) accept('re-anchored after 6 identical reads');\n        }\n    }\n}\nflow.set(key, st);\n\nconst fields = { ok: r.ok ? 1 : 0, accepted: verdict === 'accepted' ? 1 : 0, verdict, confidence: Number(r.confidence) || 0 };\nif (typeof r.kwh === 'number') fields.kwh = r.kwh;\nif (topup !== null) fields.topup_kwh = topup;\nif (reason) fields.reason = String(reason);\nif (r.digits) fields.digits = String(r.digits);\nif (r.code) fields.code = String(r.code);\nif (msg.capture && msg.capture.light) fields.led = msg.capture.light === 'led' ? 1 : 0;\nconst shadow = { payload: [{ measurement: 'gridtoken_recognition', fields, tags: { device: dev } }] };\n\nnode.status({ fill: verdict === 'accepted' ? 'green' : verdict === 'pending' ? 'yellow' : 'red', shape: 'dot',\n              text: `${verdict}${typeof r.kwh === 'number' ? ' ' + r.kwh + ' kWh' : ''}${reason ? ' (' + reason + ')' : ''}${publish ? '' : ' [shadow]'}` });\n\nconst reading = verdict === 'accepted' && publish\n    ? { device: dev, kwh: r.kwh, confidence: Number(r.confidence) || 0, source: 'camera' } : null;\nconst events = [];\nif (topup !== null && publish) events.push({ kind: 'topup', device: dev, topup, kwh: r.kwh });\nreturn [shadow, reading, events.length ? events : null];\n",
+        "func": "// Plausibility gate for camera readings.\n// With a breaker estimate (msg.payload[0] = {anchor, used}): the reading must not\n// exceed the anchor and must agree with anchor - used within a tolerance; a big\n// rise is a top-up (confirmed by the next frame).\n// Without it: the balance may only fall, at most as fast as the supply allows.\n// Everything is logged to gridtoken_recognition; accepted readings go to\n// pln_prepaid only when GRIDTOKEN_PUBLISH is \"true\".\nconst r = msg.recog || { ok: false, reason: 'bad recogniser output' };\nconst dev = msg.device;\nconst now = msg.ts || Date.now();\nconst num = (k, d) => { const v = Number(env.get(k)); return Number.isFinite(v) && env.get(k) !== '' && env.get(k) != null ? v : d; };\nconst maxKw = num('GRIDTOKEN_MAX_KW', 5.75);\nconst topupMin = num('GRIDTOKEN_TOPUP_MIN_KWH', 5);\nconst publish = String(env.get('GRIDTOKEN_PUBLISH')) === 'true';\nconst row = Array.isArray(msg.payload) && msg.payload[0] || null;\nconst haveEst = !!row && Number(row.anchor) >= 0;\nconst anchor = haveEst ? Number(row.anchor) : null;\nconst used = haveEst ? Number(row.used) || 0 : null;\nconst est = haveEst ? Math.max(0, anchor - used) : null;\nconst key = 'gt_state_' + dev;\nconst st = flow.get(key) || { last: null, pending: null, rejects: null };\nconst same = (a, b) => Math.abs(a - b) < 0.015;\nlet verdict = 'unreadable', reason = r.reason || null, topup = null;\n\nif (r.ok && typeof r.kwh === 'number') {\n    const k = r.kwh;\n    const accept = why => { st.last = { kwh: k, ts: now }; st.pending = null; st.rejects = null; verdict = 'accepted'; reason = why; };\n    const hold = why => { st.pending = { kwh: k, ts: now }; verdict = 'pending'; reason = why; };\n    const reject = why => {\n        verdict = 'rejected'; reason = why;\n        // A wrong anchor/estimate must not lock us out: 6 identical rejected reads (~30 min) re-anchor.\n        st.rejects = st.rejects && same(st.rejects.kwh, k) ? { kwh: k, n: st.rejects.n + 1 } : { kwh: k, n: 1 };\n        if (st.rejects.n >= 6) accept('re-anchored after 6 identical reads');\n    };\n    const confirmTopup = base => {\n        if (st.pending && same(st.pending.kwh, k)) { topup = +(k - base).toFixed(2); accept('topup'); }\n        else hold('top-up: waiting for a confirming frame');\n    };\n    if (haveEst) {\n        const tol = num('GRIDTOKEN_EST_TOL_KWH', 0.2) + num('GRIDTOKEN_EST_TOL_FRAC', 0.1) * used;\n        if (k <= anchor + 0.005 && Math.abs(k - est) <= tol) accept(null);\n        else if (k - est >= topupMin) confirmTopup(est);\n        else reject(`${k} differs from the breaker estimate ${est.toFixed(2)} by ${(k - est).toFixed(2)} kWh (tolerance ${tol.toFixed(2)})`);\n    } else if (!st.last) {\n        if (st.pending && same(st.pending.kwh, k)) accept('baseline');\n        else hold('baseline: waiting for a confirming frame');\n    } else {\n        const hours = Math.max(0, (now - st.last.ts) / 3.6e6);\n        const drop = st.last.kwh - k;\n        if (drop >= -0.005 && drop <= maxKw * hours + 0.02) accept(null);\n        else if (-drop >= topupMin) confirmTopup(st.last.kwh);\n        else reject(drop > 0 ? `drop ${drop.toFixed(2)} kWh in ${hours.toFixed(2)} h exceeds ${maxKw} kW`\n                             : `rise ${(-drop).toFixed(2)} kWh is too small for a top-up`);\n    }\n}\nflow.set(key, st);\n\nconst fields = { ok: r.ok ? 1 : 0, accepted: verdict === 'accepted' ? 1 : 0, verdict, confidence: Number(r.confidence) || 0 };\nif (typeof r.kwh === 'number') fields.kwh = r.kwh;\nif (haveEst) fields.est_kwh = +est.toFixed(3);\nif (topup !== null) fields.topup_kwh = topup;\nif (reason) fields.reason = String(reason);\nif (r.digits) fields.digits = String(r.digits);\nif (r.code) fields.code = String(r.code);\nif (msg.capture && msg.capture.light) fields.led = msg.capture.light === 'led' ? 1 : 0;\nconst shadow = { payload: [{ measurement: 'gridtoken_recognition', fields, tags: { device: dev } }] };\n\nnode.status({ fill: verdict === 'accepted' ? 'green' : verdict === 'pending' ? 'yellow' : 'red', shape: 'dot',\n              text: `${verdict}${typeof r.kwh === 'number' ? ' ' + r.kwh + ' kWh' : ''}${haveEst ? ' (est ' + est.toFixed(2) + ')' : ''}${reason ? ' - ' + reason : ''}${publish ? '' : ' [shadow]'}` });\n\nconst reading = verdict === 'accepted' && publish\n    ? { device: dev, kwh: r.kwh, confidence: Number(r.confidence) || 0, source: 'camera' } : null;\nconst events = [];\nif (topup !== null && publish) events.push({ kind: 'topup', device: dev, topup, kwh: r.kwh });\nreturn [shadow, reading, events.length ? events : null];\n",
         "outputs": 3,
         "timeout": 0,
         "noerr": 0,
@@ -235,7 +339,7 @@
         "type": "function",
         "z": "gtr0tab00000001",
         "name": "alert text",
-        "func": "// Telegram sendMessage query (GET, payload -> query string), like the other tabs.\nconst chat = env.get('GRIDTOKEN_TELEGRAM_CHAT');\nif (!chat) return null;\nconst text = {\n    backlight_off: `💡 Meter backlight is OFF (${msg.device}). Press any key on the PLN meter so the camera can keep reading it.`,\n    backlight_on: `✅ Meter backlight is back on (${msg.device}).`,\n    topup: `🔌 PLN token top-up detected: +${msg.topup} kWh, balance now ${msg.kwh} kWh.`,\n}[msg.kind];\nif (!text) return null;\nreturn { payload: { chat_id: chat, text } };\n",
+        "func": "// Telegram sendMessage query (GET, payload -> query string), like the other tabs.\nconst chat = env.get('GRIDTOKEN_TELEGRAM_CHAT');\nif (!chat) return null;\nconst text = {\n    backlight_off: `💡 Meter backlight is OFF (${msg.device}). Press any key on the PLN meter so the camera can keep reading it.`,\n    backlight_on: `✅ Meter backlight is back on (${msg.device}).`,\n    topup: `🔌 PLN token top-up detected: +${msg.topup} kWh, balance now ${msg.kwh} kWh.`,\n    low_credit: `⚠️ PLN credit is low: about ${msg.kwh} kWh left${msg.days ? ' (~' + msg.days + ' days at the recent rate)' : ''}.`,\n}[msg.kind];\nif (!text) return null;\nreturn { payload: { chat_id: chat, text } };\n",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -348,6 +452,93 @@
         "x": 1700,
         "y": 200,
         "wires": []
+    },
+    {
+        "id": "gtr0injest00001",
+        "type": "inject",
+        "z": "gtr0tab00000001",
+        "name": "every 5 min",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "300",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 20,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 520,
+        "wires": [
+            [
+                "gtr0fnestq00001"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0fnestq00001",
+        "type": "function",
+        "z": "gtr0tab00000001",
+        "name": "estimate query (+7-day rate)",
+        "func": "const power = env.get('GRIDTOKEN_POWER_MEASUREMENT');\nif (!power) return null;\nreturn { query: estimateFlux('my-bucket', power, true) };\n\n// Flux: last pln_prepaid reading (the anchor), grid energy used since then, and\n// optionally the 7-day average daily use. One row: {anchor, anchor_ns, used[, daily]}.\nfunction estimateFlux(bucket, power, withDaily) {\n    const src = `from(bucket: \"${bucket}\")`;\n    const pw = `|> filter(fn: (r) => r._measurement == \"${power}\" and r._field == \"value\") |> group() |> integral(unit: 1h) |> findRecord(fn: (key) => true, idx: 0)`;\n    return `import \"array\"\nimport \"date\"\na = ${src} |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"pln_prepaid\" and r._field == \"kwh\")\n  |> group() |> sort(columns: [\"_time\"]) |> last() |> findRecord(fn: (key) => true, idx: 0)\nt0 = if exists a._time then a._time else date.sub(d: 1m, from: now())\nu = ${src} |> range(start: t0) ${pw}\n${withDaily ? `w = ${src} |> range(start: -7d) ${pw}` : ''}\narray.from(rows: [{\n  anchor: if exists a._value then a._value else -1.0,\n  anchor_ns: if exists a._time then int(v: a._time) else 0,\n  used: if exists u._value then u._value / 1000.0 else 0.0${withDaily ? ', daily: if exists w._value then w._value / 7000.0 else 0.0' : ''}\n}])`;\n}\n\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 520,
+        "wires": [
+            [
+                "gtr0influxin002"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0influxin002",
+        "type": "influxdb in",
+        "z": "gtr0tab00000001",
+        "influxdb": "gtr0influxcfg01",
+        "name": "anchor + used + daily",
+        "query": "",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "org": "my-org",
+        "x": 680,
+        "y": 520,
+        "wires": [
+            [
+                "gtr0fnestpoint1"
+            ]
+        ]
+    },
+    {
+        "id": "gtr0fnestpoint1",
+        "type": "function",
+        "z": "gtr0tab00000001",
+        "name": "pln_prepaid_est point",
+        "func": "// pln_prepaid_est: balance estimate between meter readings\n// (anchor reading minus grid energy measured since), every 5 minutes.\nconst row = Array.isArray(msg.payload) && msg.payload[0];\nif (!row || Number(row.anchor) < 0) { node.status({ fill: 'grey', shape: 'ring', text: 'no anchor reading yet' }); return null; }\nconst anchor = Number(row.anchor), used = Number(row.used) || 0, daily = Number(row.daily) || 0;\nconst est = Math.max(0, anchor - used);\nconst price = Number(env.get('GRIDTOKEN_PRICE') || 0);\nconst fields = {\n    kwh: +est.toFixed(3), anchor_kwh: anchor, used_since_kwh: +used.toFixed(3), daily_kwh: +daily.toFixed(3),\n    anchor_age_h: +((Date.now() - Number(row.anchor_ns) / 1e6) / 3.6e6).toFixed(2),\n};\nif (price > 0) fields.rupiah = Math.round(est * price);\nif (daily > 0.05) fields.days_left = +(est / daily).toFixed(1);\nnode.status({ fill: 'blue', shape: 'dot', text: `${est.toFixed(2)} kWh${fields.days_left ? ', ~' + fields.days_left + ' d' : ''} (anchor ${anchor}, ${fields.anchor_age_h} h old)` });\n\n// Low-credit alert: once when crossing below the threshold, re-armed 20% above it.\nconst low = Number(env.get('GRIDTOKEN_LOW_KWH') || 0);\nlet event = null;\nif (low > 0) {\n    const was = flow.get('gt_low') || false;\n    if (est < low && !was) { flow.set('gt_low', true); event = { kind: 'low_credit', kwh: +est.toFixed(2), days: fields.days_left }; }\n    else if (est >= low * 1.2 && was) flow.set('gt_low', false);\n}\nreturn [{ payload: [{ measurement: 'pln_prepaid_est', fields, tags: {} }] }, event];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 520,
+        "wires": [
+            [
+                "gtr0influx00001"
+            ],
+            [
+                "gtr0fntelegram1"
+            ]
+        ]
     },
     {
         "id": "gtr0inject00001",

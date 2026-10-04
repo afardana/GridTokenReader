@@ -104,7 +104,8 @@ All night-time failures are "unreadable"/"low confidence", and every daylight fr
 was refused because outside light reflects in the cover (see HARDWARE.md, "Block
 daylight"). After the camera was re-mounted ~7% closer and shifted, the reader was
 reworked to align and scale to the LCD window; it reads a 5-digit balance after a
-top-up correctly. Next: fix the daylight reflections, see an LED-lit frame after a
+top-up correctly. Live since 2026-10-04 (`GRIDTOKEN_PUBLISH=true`), with the
+breaker-based estimate (`pln_prepaid_est`) and cross-check in Node-RED. Next: fix the daylight reflections, see an LED-lit frame after a
 backlight-off event, then set `GRIDTOKEN_PUBLISH=true`.
 
 

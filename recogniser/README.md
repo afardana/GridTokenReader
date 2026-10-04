@@ -15,6 +15,9 @@ How it works:
    (top, bottom, right). The calibrated boxes are then **shifted and scaled** to it,
    so a camera that was bumped or re-mounted a little closer still reads without
    re-calibration (window height within 0.7–1.4× of the calibration frame).
+   The right border is a weak anchor when it sits near the frame edge, so the
+   reader also tries small horizontal nudges (±28 px) and keeps the alignment that
+   decodes cleanly with the widest lit/unlit gap.
 2. **Darkness map:** `1 − pixel / local background`, so lit segments score high and
    unlit "ghost" segments score near 0, whatever the exposure. Two background
    estimates are used and cross-checked: one from pixels inside the LCD window only

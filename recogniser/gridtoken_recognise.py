@@ -79,11 +79,12 @@ def find_lcd(img):
     return top, bottom, right
 
 
-def make_transform(lcd, ref):
-    """Map calibration-frame pixels to this frame: same LCD window, shifted and scaled."""
+def make_transform(lcd, ref, dx=0):
+    """Map calibration-frame pixels to this frame: same LCD window, shifted and scaled.
+    `dx` nudges the result horizontally (see the search in recognise())."""
     top, bottom, right = lcd
     scale = (bottom - top) / float(ref["bottom"] - ref["top"])
-    return scale, (lambda x: right + (x - ref["right"]) * scale), (lambda y: top + (y - ref["top"]) * scale)
+    return scale, (lambda x: right + dx + (x - ref["right"]) * scale), (lambda y: top + (y - ref["top"]) * scale)
 
 
 def seg_point(box, u, v, slant):
@@ -152,10 +153,30 @@ def classify(positions, thr):
     return digits
 
 
-def _read(img, profile, lcd, tf, scale, masked):
-    """One reading attempt with one background method."""
-    cal = profile["calibration"]
+# Horizontal nudges tried around the detected position, nearest first. The right
+# LCD border is a weak anchor when it sits near the frame edge.
+DX_SEARCH = [0] + [d * sign for d in range(4, 29, 4) for sign in (1, -1)]
+
+
+def _read(img, profile, lcd, ref, scale, masked):
+    """Best reading over the horizontal search, with one background method."""
     dark = darkness_map(img, (25 if masked else 40) * scale, lcd if masked else None)
+    best = None
+    for dx in DX_SEARCH:
+        res, positions, thr = _read_at(dark, profile, make_transform(lcd, ref, dx), masked)
+        res["dx"] = dx
+        # prefer readable results, then fewer undecodable digits, then the widest gap
+        key = (res["ok"], -(res["digits"] + res["code_digits"]).count("?"), res["confidence"], res["gap"])
+        if best is None or key > best[0]:
+            best = (key, res, positions, thr)
+        if res["ok"] and res["confidence"] >= 1.0:
+            break  # clean read at the nearest offset: stop searching
+    return best[1], best[2], best[3]
+
+
+def _read_at(dark, profile, tf, masked):
+    """One reading attempt at one alignment."""
+    cal = profile["calibration"]
     main = read_group(dark, cal["main"], tf)
     code = read_group(dark, cal["code"], tf) if "code" in cal else []
     values = [sg["d"] for p in main + code for sg in p["segs"].values() if sg["d"] is not None]
@@ -168,7 +189,7 @@ def _read(img, profile, lcd, tf, scale, masked):
     res = {"ok": False, "kwh": None, "code": None, "confidence": confidence,
            "digits": "".join(c if c else "_" for c in main_digits),
            "code_digits": "".join(c if c else "_" for c in code_digits),
-           "method": "masked" if masked else "blur", "thr": round(thr, 3), "reason": None}
+           "method": "masked" if masked else "blur", "thr": round(thr, 3), "gap": round(gap, 4), "reason": None}
     text = "".join(c for c in main_digits if c is not None).lstrip(" ")
     if "?" in text or not text or " " in text:
         res["reason"] = "unreadable digits"
@@ -199,11 +220,9 @@ def recognise(path, profile, debug=None):
     if not lcd or not 0.7 <= scale <= 1.4:
         return {"ok": False, "kwh": None, "code": None, "confidence": 0.0, "lcd": lcd,
                 "reason": "LCD window not found (glare, dark frame, or camera moved too far)"}
-    tf = make_transform(lcd, ref)
-
     # Two background estimates, cross-checked (see darkness_map).
-    a, pos_a, thr_a = _read(img, profile, lcd, tf, scale, masked=True)
-    b, pos_b, thr_b = _read(img, profile, lcd, tf, scale, masked=False)
+    a, pos_a, thr_a = _read(img, profile, lcd, ref, scale, masked=True)
+    b, pos_b, thr_b = _read(img, profile, lcd, ref, scale, masked=False)
     thr = thr_a
     if a["ok"] and b["ok"] and a["kwh"] != b["kwh"]:
         result, positions = dict(a), pos_a
