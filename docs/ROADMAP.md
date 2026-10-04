@@ -97,11 +97,15 @@ Reference meter: **SMI-810 V2**. See [meters/smi-810-v2.md](meters/smi-810-v2.md
 
 ## Phase 2: Recognition in the backend (MVP readings) — 🚧 in shadow mode
 
-Status (2026-09-29): `recogniser/` (7-segment sampling, no ML) reads the reference
-SMI-810 frames correctly, and the Node-RED plausibility gate is live in **shadow
-mode** (results go to `gridtoken_recognition`, not to `pln_prepaid`). Next:
-evaluate 1–2 days of frames (`recogniser/evaluate.py`), including an LED-lit frame
-after a backlight-off event, then set `GRIDTOKEN_PUBLISH=true`.
+Status (2026-10-04): `recogniser/` (7-segment sampling, no ML) is live in
+**shadow mode** behind the Node-RED plausibility gate. First evaluation on 183
+stored frames: 101 readable, **0 wrong values** (no upward jumps, no outliers).
+All night-time failures are "unreadable"/"low confidence", and every daylight frame
+was refused because outside light reflects in the cover (see HARDWARE.md, "Block
+daylight"). After the camera was re-mounted ~7% closer and shifted, the reader was
+reworked to align and scale to the LCD window; it reads a 5-digit balance after a
+top-up correctly. Next: fix the daylight reflections, see an LED-lit frame after a
+backlight-off event, then set `GRIDTOKEN_PUBLISH=true`.
 
 
 Iterate on recognition where it's cheap to change, i.e. in Node-RED/Python, not in

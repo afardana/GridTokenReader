@@ -34,42 +34,56 @@ PATTERNS = {
 }
 
 
-def darkness_map(img):
-    """0 = like the local background, 1 = much darker (a lit LCD segment)."""
-    gray = img.convert("L")
-    bg = gray.filter(ImageFilter.GaussianBlur(40))
-    g = np.asarray(gray, dtype=np.float32)
-    b = np.asarray(bg, dtype=np.float32) + 1.0
-    return np.clip(1.0 - g / b, 0.0, 1.0)
+def _blur(arr, radius):
+    return np.asarray(Image.fromarray(arr.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius)), dtype=np.float32)
 
 
-def first_run(profile, thr, reverse=False):
-    idx = range(len(profile) - 1, -1, -1) if reverse else range(len(profile))
-    for i in idx:
-        if profile[i] > thr:
-            return i
-    return None
+def darkness_map(img, radius=40, lcd=None):
+    """0 = like the local background, 1 = much darker (a lit LCD segment).
+
+    With `lcd` (top, bottom, right) the background is estimated from pixels inside
+    the LCD window only, so the dark bezel next to the outer digits does not drag
+    it down. Without it, a plain blur: more forgiving when part of the window is
+    shadowed (e.g. by the bezel at an oblique viewing angle).
+    """
+    g = np.asarray(img.convert("L"), dtype=np.float32)
+    if lcd is None:
+        return np.clip(1.0 - g / (_blur(g, radius) + 1.0), 0.0, 1.0)
+    top, bottom, right = lcd
+    mask = np.zeros_like(g)
+    mask[top + 4:bottom - 3, :max(0, right - 4)] = 1.0
+    bg = _blur(g * mask, radius) / np.maximum(_blur(mask * 255.0, radius) / 255.0, 0.02)
+    return np.clip(1.0 - g / (bg + 1.0), 0.0, 1.0) * mask
 
 
-def find_offset(dark, cal):
-    """Shift (dx, dy) of the LCD window vs. calibration, from its dark borders."""
-    a = cal["anchors"]
-    dx = dy = 0
-    # right border: first strongly dark column scanning right from inside the LCD
-    y0, y1 = a["band_y"]
-    cols = dark[y0:y1, :].mean(axis=0)
-    x_in = a["right_border_x"] - a["search"]
-    r = first_run(cols[x_in:x_in + 2 * a["search"]], a["border_thr"])
-    if r is not None:
-        dx = (x_in + r) - a["right_border_x"]
-    # top border: last dark row scanning up from inside the LCD
-    x0, x1 = a["band_x"]
-    rows = dark[:, x0:x1].mean(axis=1)
-    y_in = a["top_border_y"] + a["search"]
-    t = first_run(rows[y_in - 2 * a["search"]:y_in], a["border_thr"], reverse=True)
-    if t is not None:
-        dy = (y_in - 2 * a["search"] + t) - a["top_border_y"]
-    return int(dx), int(dy)
+def _smooth(v, k=9):
+    return np.convolve(v, np.ones(k) / k, mode="same")
+
+
+def find_lcd(img):
+    """Locate the bright LCD window by its steepest brightness edges.
+
+    Returns (top, bottom, right) in pixels. The left edge is not used: at close
+    range it is outside the frame.
+    """
+    g = np.asarray(img.convert("L").filter(ImageFilter.GaussianBlur(4)), dtype=np.float32)
+    h, w = g.shape
+    m = 12  # ignore smoothing artefacts at the array ends
+    rows = np.gradient(_smooth(g[:, w // 5:4 * w // 5].mean(axis=1)))
+    top = int(m + np.argmax(rows[m:h // 2]))
+    bottom = int(h // 3 + np.argmin(rows[h // 3:h - m]))
+    if bottom - top < 40:
+        return None
+    cols = np.gradient(_smooth(g[top + 10:bottom - 10, :].mean(axis=0)))
+    right = int(w // 2 + np.argmin(cols[w // 2:w - m]))
+    return top, bottom, right
+
+
+def make_transform(lcd, ref):
+    """Map calibration-frame pixels to this frame: same LCD window, shifted and scaled."""
+    top, bottom, right = lcd
+    scale = (bottom - top) / float(ref["bottom"] - ref["top"])
+    return scale, (lambda x: right + (x - ref["right"]) * scale), (lambda y: top + (y - ref["top"]) * scale)
 
 
 def seg_point(box, u, v, slant):
@@ -86,8 +100,8 @@ def sample(dark, x, y, along, across, horizontal):
     darkest line within +-across, so small misalignments don't matter."""
     h, w = dark.shape
     rx, ry = (along, across) if horizontal else (across, along)
-    xa, xb = int(max(0, x - rx)), int(min(w, x + rx + 1))
-    ya, yb = int(max(0, y - ry)), int(min(h, y + ry + 1))
+    xa, xb = int(max(0, round(x - rx))), int(min(w, round(x + rx) + 1))
+    ya, yb = int(max(0, round(y - ry))), int(min(h, round(y + ry) + 1))
     if xb - xa < rx or yb - ya < ry:
         return None  # (mostly) outside the frame
     win = dark[ya:yb, xa:xb]
@@ -95,15 +109,16 @@ def sample(dark, x, y, along, across, horizontal):
     return float(lines.max())
 
 
-def read_group(dark, group, dx, dy):
+def read_group(dark, group, tf):
     """Sample every segment of every digit position in a group (main value / code)."""
+    scale, tx, ty = tf
     out = []
     for i in range(group["count"]):
-        box = (group["x0"] + dx - i * group["pitch"], group["y0"] + dy, group["w"], group["h"])
+        box = (tx(group["x0"] - i * group["pitch"]), ty(group["y0"]), group["w"] * scale, group["h"] * scale)
         segs = {}
         for name, (u, v) in SEGMENTS.items():
             x, y = seg_point(box, u, v, group["slant"])
-            d = sample(dark, x, y, group["along"], group["across"], name in HORIZONTAL)
+            d = sample(dark, x, y, group["along"] * scale, group["across"] * scale, name in HORIZONTAL)
             segs[name] = {"x": x, "y": y, "d": d}
         out.append({"box": box, "segs": segs})
     return out[::-1]  # left-to-right
@@ -125,14 +140,12 @@ def classify(positions, thr):
     return digits, margins
 
 
-def recognise(path, profile, debug=None):
+def _read(img, profile, lcd, tf, scale, masked):
+    """One reading attempt with one background method."""
     cal = profile["calibration"]
-    img = Image.open(path).convert("RGB")
-    dark = darkness_map(img)
-    dx, dy = find_offset(dark, cal)
-
-    main = read_group(dark, cal["main"], dx, dy)
-    code = read_group(dark, cal["code"], dx, dy) if "code" in cal else []
+    dark = darkness_map(img, (25 if masked else 40) * scale, lcd if masked else None)
+    main = read_group(dark, cal["main"], tf)
+    code = read_group(dark, cal["code"], tf) if "code" in cal else []
     thr = cal["segment_thr"]
     main_digits, m1 = classify(main, thr)
     code_digits, m2 = classify(code, thr)
@@ -141,39 +154,66 @@ def recognise(path, profile, debug=None):
     spread = cal.get("confidence_spread", 0.15)
     confidence = round(min(1.0, min(margins) / spread), 3) if margins else 0.0
 
-    result = {"ok": False, "kwh": None, "code": None, "confidence": confidence,
-              "digits": "".join(c if c else "_" for c in main_digits),
-              "code_digits": "".join(c if c else "_" for c in code_digits),
-              "offset": [dx, dy], "reason": None}
-
-    visible = [c for c in main_digits if c is not None]
-    text = "".join(visible).lstrip(" ")
+    res = {"ok": False, "kwh": None, "code": None, "confidence": confidence,
+           "digits": "".join(c if c else "_" for c in main_digits),
+           "code_digits": "".join(c if c else "_" for c in code_digits),
+           "method": "masked" if masked else "blur", "reason": None}
+    text = "".join(c for c in main_digits if c is not None).lstrip(" ")
     if "?" in text or not text or " " in text:
-        result["reason"] = "unreadable digits"
+        res["reason"] = "unreadable digits"
     elif len(text) < cal["main"]["decimals"] + 1:
-        result["reason"] = "too few digits"
+        res["reason"] = "too few digits"
     else:
-        result["kwh"] = int(text) / (10 ** cal["main"]["decimals"])
-    ctext = "".join(c for c in code_digits if c is not None).strip()
+        res["kwh"] = int(text) / (10 ** cal["main"]["decimals"])
     if code:
-        result["code"] = ctext if ctext and "?" not in ctext and " " not in ctext else None
+        ctext = "".join(c for c in code_digits if c is not None).strip()
+        res["code"] = ctext if ctext and "?" not in ctext and " " not in ctext else None
         want = profile.get("balance_screen_code")
-        if result["kwh"] is not None and want and result["code"] != want:
-            result["reason"] = f"screen code {result['code']!r} is not the balance screen ({want})"
-            result["kwh"] = None
-    if result["kwh"] is not None and confidence < cal.get("min_confidence", 0.2):
-        result["reason"] = "low confidence"
-        result["kwh"] = None
-    result["ok"] = result["kwh"] is not None
+        if res["kwh"] is not None and want and res["code"] != want:
+            res["reason"] = f"screen code {res['code']!r} is not the balance screen ({want})"
+            res["kwh"] = None
+    if res["kwh"] is not None and confidence < cal.get("min_confidence", 0.2):
+        res["reason"] = "low confidence"
+        res["kwh"] = None
+    res["ok"] = res["kwh"] is not None
+    return res, main + code
+
+
+def recognise(path, profile, debug=None):
+    cal = profile["calibration"]
+    img = Image.open(path).convert("RGB")
+    lcd = find_lcd(img)
+    ref = cal["lcd"]
+    scale = (lcd[1] - lcd[0]) / float(ref["bottom"] - ref["top"]) if lcd else 0
+    if not lcd or not 0.7 <= scale <= 1.4:
+        return {"ok": False, "kwh": None, "code": None, "confidence": 0.0, "lcd": lcd,
+                "reason": "LCD window not found (glare, dark frame, or camera moved too far)"}
+    tf = make_transform(lcd, ref)
+
+    # Two background estimates, cross-checked (see darkness_map).
+    a, pos_a = _read(img, profile, lcd, tf, scale, masked=True)
+    b, pos_b = _read(img, profile, lcd, tf, scale, masked=False)
+    if a["ok"] and b["ok"] and a["kwh"] != b["kwh"]:
+        result, positions = dict(a), pos_a
+        result.update(ok=False, kwh=None, reason=f"methods disagree ({a['kwh']} vs {b['kwh']})")
+    elif a["ok"] or not b["ok"]:
+        result, positions = a, pos_a
+        if a["ok"] and b["ok"]:
+            result["confidence"] = max(a["confidence"], b["confidence"])
+    else:
+        result, positions = b, pos_b
+    result.update(lcd=list(lcd), scale=round(scale, 3))
 
     if debug:
-        draw_debug(img, dark, main + code, thr, dx, dy, result, debug)
+        draw_debug(img, positions, cal["segment_thr"], lcd, result, debug)
     return result
 
 
-def draw_debug(img, dark, positions, thr, dx, dy, result, out):
+def draw_debug(img, positions, thr, lcd, result, out):
     vis = img.copy()
     d = ImageDraw.Draw(vis)
+    top, bottom, right = lcd
+    d.line([(0, top), (right, top), (right, bottom), (0, bottom)], fill=(255, 0, 255), width=2)
     for p in positions:
         x0, y0, w, h = p["box"]
         d.rectangle([x0, y0, x0 + w, y0 + h], outline=(255, 255, 0))
@@ -186,7 +226,7 @@ def draw_debug(img, dark, positions, thr, dx, dy, result, out):
             d.text((s["x"] + 6, s["y"] - 6), f"{name}{s['d']:.2f}", fill=col)
         if p.get("char") is not None:
             d.text((x0 + w / 2 - 4, y0 + h + 4), repr(p["char"]), fill=(255, 255, 255))
-    d.text((8, 8), f"{result} off=({dx},{dy})", fill=(255, 255, 255))
+    d.text((8, 8), str(result), fill=(255, 255, 255))
     vis.save(out)
 
 

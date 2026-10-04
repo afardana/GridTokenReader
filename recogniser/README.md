@@ -11,10 +11,16 @@ python3 evaluate.py /var/lib/gridtoken/frames/gridtoken-9b16b8 --profile profile
 ```
 
 How it works:
-1. **Darkness map:** `1 − pixel / local background` (Gaussian blur, 40 px), so lit
-   segments score high and unlit "ghost" segments score near 0, whatever the exposure.
-2. **Alignment:** the LCD window's dark borders (right edge and top edge) are
-   located and the calibrated boxes are shifted, so a slightly bumped camera still reads.
+1. **Alignment:** the bright LCD window is located by its steepest brightness edges
+   (top, bottom, right). The calibrated boxes are then **shifted and scaled** to it,
+   so a camera that was bumped or re-mounted a little closer still reads without
+   re-calibration (window height within 0.7–1.4× of the calibration frame).
+2. **Darkness map:** `1 − pixel / local background`, so lit segments score high and
+   unlit "ghost" segments score near 0, whatever the exposure. Two background
+   estimates are used and cross-checked: one from pixels inside the LCD window only
+   (the dark bezel can't hide the outer segments), and a plain blur (more forgiving
+   when the bezel shadows part of the window). If both give a value and they
+   differ, the frame is rejected.
 3. **Segments:** each segment is sampled as a short strip along its direction,
    keeping the darkest line within ±`across` px. Italic digits are handled with `slant`.
 4. **Decode:** lit patterns map to digits, and leading blanks are allowed. The value
@@ -28,7 +34,7 @@ How it works:
 Take a backlit frame, run with `--debug`, and adjust `profiles/<device>.json`:
 - `main.x0`: the **bottom-left** x of the rightmost digit. Also set `y0` (top), `w`, `h`, `pitch` and `slant`.
 - `code`: the same for the small screen-code digits.
-- `anchors`: the LCD window's right border x and top border y in that frame.
+- `lcd`: the LCD window edges (`top`, `bottom`, `right`) of that frame, as printed in the result's `lcd` field.
 - Check that every lit segment's circle is red and every unlit one is green in the overlay.
   `segment_thr` sits halfway between the weakest lit and the strongest unlit value.
 

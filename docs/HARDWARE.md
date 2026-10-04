@@ -79,6 +79,16 @@ tilt the camera a few degrees.
 
 ## Optics & mounting tips
 
+- **Focus aid:** open `http://<device>/focus`. It shows a live preview with a
+  sharpness score and a best-so-far mark. Turn the lens a few degrees at a time and
+  stop at the peak.
+- **Block daylight.** A meter box that isn't light-tight lets the bright outside
+  reflect in the meter's clear cover during the day, which washes out digits (the
+  recogniser then refuses the frame). Close the box fully, or fit a small black
+  hood/tube between the camera and the cover. Also tape over any indicator LEDs
+  inside the box (e.g. the power LED on the ESP32-CAM-MB): they show up as bright
+  dots on the digits.
+
 - The stock lens focuses at ~1 m. For a meter LCD at 8–12 cm, carefully rotate the
   lens (break the glue dab first) until the digits are sharp in `/capture`.
 - Mount the camera square to the LCD and slightly off-axis if the flash reflects

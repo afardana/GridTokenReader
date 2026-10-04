@@ -22,7 +22,7 @@ a,button{margin-right:12px}fieldset{margin:12px 0;border:1px solid #8884;border-
 label{display:flex;gap:8px;align-items:center;margin:6px 0}input[type=range]{flex:1}output{min-width:3.5em;text-align:right}</style>
 </head><body>
 <h1>GridTokenReader</h1>
-<p><button onclick="snap()">Capture</button><a href="/push">Push now</a><a href="/status">Status</a><a href="/sd">SD card</a><a href="/update">Firmware update</a></p>
+<p><button onclick="snap()">Capture</button><a href="/focus">Focus aid</a><a href="/push">Push now</a><a href="/status">Status</a><a href="/sd">SD card</a><a href="/update">Firmware update</a></p>
 <img id="img" alt="capture">
 <fieldset><legend>Lighting &amp; exposure (saved on the device)</legend>
 <label>Light <select id="light"><option value="auto">auto: backlight, LED if LCD is dark</option>
@@ -100,6 +100,36 @@ static void handleSettings() {
   }
   server.send(200, "application/json", settingsJson());
 }
+
+// Focus aid: live preview + sharpness score (variance of the Laplacian over the
+// middle of the frame, computed in the browser). Turn the lens until it peaks.
+static const char FOCUS_HTML[] = R"HTML(<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GridTokenReader focus</title>
+<style>body{font-family:system-ui,sans-serif;margin:16px;max-width:840px}img{width:100%;border-radius:8px;background:#222}
+#bar{height:18px;background:#8883;border-radius:9px;position:relative;margin:8px 0}#fill{height:100%;background:#2a8;border-radius:9px;width:0}
+#best{position:absolute;top:-3px;width:3px;height:24px;background:#e33}.n{font:600 28px system-ui}</style></head><body>
+<h1>Focus aid</h1>
+<p>Turn the lens a little at a time and wait for the next picture. Stop where the score peaks
+(red mark = best so far). <a href="/">Back</a></p>
+<p>Sharpness <span class="n" id="s">-</span> &nbsp; best <span class="n" id="b">-</span>
+<button onclick="best=0">Reset best</button></p>
+<div id="bar"><div id="fill"></div><div id="best"></div></div>
+<img id="img" alt="preview"><canvas id="c" width="400" height="300" hidden></canvas>
+<script>
+let best=0;const $=id=>document.getElementById(id),ctx=$('c').getContext('2d',{willReadFrequently:true});
+async function tick(){try{
+ const r=await fetch('/capture?t='+Date.now());const blob=await r.blob();$('img').src=URL.createObjectURL(blob);
+ const bmp=await createImageBitmap(blob);ctx.drawImage(bmp,0,0,400,300);
+ const d=ctx.getImageData(40,60,320,180).data,w=320,h=180,g=new Float32Array(w*h);
+ for(let i=0;i<w*h;i++)g[i]=(d[4*i]+2*d[4*i+1]+d[4*i+2])/4;
+ let sum=0,sq=0,n=0;for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x,l=4*g[i]-g[i-1]-g[i+1]-g[i-w]-g[i+w];sum+=l;sq+=l*l;n++}
+ const v=sq/n-(sum/n)**2;best=Math.max(best,v);
+ $('s').textContent=v.toFixed(1);$('b').textContent=best.toFixed(1);
+ $('fill').style.width=Math.min(100,100*v/(best*1.15))+'%';$('best').style.left=Math.min(100,100/1.15)+'%';
+}catch(e){$('s').textContent='...'}setTimeout(tick,400)}
+tick();
+</script></body></html>)HTML";
 
 static const char UPDATE_HTML[] = R"HTML(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -189,6 +219,7 @@ void webBegin(void (*onPushRequest)()) {
   pushHandler = onPushRequest;
   server.on("/", HTTP_GET, [] { server.send(200, "text/html", INDEX_HTML); });
   server.on("/capture", HTTP_GET, handleCapture);
+  server.on("/focus", HTTP_GET, [] { server.send(200, "text/html", FOCUS_HTML); });
   server.on("/settings", HTTP_GET, handleSettings);
   server.on("/status", HTTP_GET, [] { server.send(200, "application/json", netStatusJson()); });
   server.on("/update", HTTP_GET, [] {

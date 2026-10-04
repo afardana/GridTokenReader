@@ -1,6 +1,6 @@
 #pragma once
 
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.4.0"
 
 // Credentials and endpoints come from the repo-root `.env` (see .env.example),
 // turned into env_secrets.h by scripts/load_env.py at build time.

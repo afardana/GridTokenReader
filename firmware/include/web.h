@@ -3,6 +3,7 @@
 // Local HTTP API on port 80:
 //   GET /             tiny preview page
 //   GET /capture      fresh JPEG lit by the flash LED (?led=0-255 override, ?flash=0 off)
+//   GET /focus        live preview with a sharpness score, for adjusting the lens
 //   GET /settings     LED intensity / settle / exposure (query params update + persist)
 //   GET /status       health JSON
 //   GET /push         capture now and push via the configured transports

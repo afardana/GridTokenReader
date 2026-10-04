@@ -29,7 +29,7 @@ def main():
         r = R.recognise(str(f), profile, dbg)
         rows.append((f, r))
         print(f"{f.parent.name}/{f.name}  {r['kwh'] if r['ok'] else '-':>8}  conf {r['confidence']:.2f}  "
-              f"digits '{r['digits']}' code '{r.get('code_digits')}'  {r['reason'] or ''}")
+              f"digits '{r.get('digits', '')}' code '{r.get('code_digits', '')}'  {r['reason'] or ''}")
     ok = [r for _, r in rows if r["ok"]]
     print(f"\n{len(ok)}/{len(rows)} readable ({100 * len(ok) / max(1, len(rows)):.1f}%)")
     if ok:
