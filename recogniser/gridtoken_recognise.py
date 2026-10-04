@@ -124,8 +124,21 @@ def read_group(dark, group, tf):
     return out[::-1]  # left-to-right
 
 
+def split_threshold(values, fallback, low_max=0.15):
+    """Per-frame lit/unlit threshold: the middle of the widest gap between the
+    sorted segment darkness values, looking only at gaps that start below
+    `low_max` (unlit and ghost segments live there whatever the focus).
+    Returns (threshold, gap)."""
+    v = sorted(values)
+    best = (0.0, fallback)
+    for lo, hi in zip(v, v[1:]):
+        if lo < low_max and hi - lo > best[0]:
+            best = (hi - lo, (lo + hi) / 2.0)
+    return best[1], best[0]
+
+
 def classify(positions, thr):
-    digits, margins = [], []
+    digits = []
     for p in positions:
         vals = [s["d"] for s in p["segs"].values()]
         if any(v is None for v in vals):
@@ -136,8 +149,7 @@ def classify(positions, thr):
         p["lit"] = lit
         p["char"] = PATTERNS.get(lit, "?")
         digits.append(p["char"])
-        margins.extend(abs(v - thr) for v in vals)
-    return digits, margins
+    return digits
 
 
 def _read(img, profile, lcd, tf, scale, masked):
@@ -146,18 +158,17 @@ def _read(img, profile, lcd, tf, scale, masked):
     dark = darkness_map(img, (25 if masked else 40) * scale, lcd if masked else None)
     main = read_group(dark, cal["main"], tf)
     code = read_group(dark, cal["code"], tf) if "code" in cal else []
-    thr = cal["segment_thr"]
-    main_digits, m1 = classify(main, thr)
-    code_digits, m2 = classify(code, thr)
-    margins = m1 + m2
-    # confidence: how far the least clear-cut segment is from the threshold (0..1)
-    spread = cal.get("confidence_spread", 0.15)
-    confidence = round(min(1.0, min(margins) / spread), 3) if margins else 0.0
+    values = [sg["d"] for p in main + code for sg in p["segs"].values() if sg["d"] is not None]
+    thr, gap = split_threshold(values, cal["segment_thr"])
+    main_digits = classify(main, thr)
+    code_digits = classify(code, thr)
+    # confidence: width of the gap between the unlit and lit groups (0..1)
+    confidence = round(min(1.0, gap / cal.get("confidence_gap", 0.06)), 3)
 
     res = {"ok": False, "kwh": None, "code": None, "confidence": confidence,
            "digits": "".join(c if c else "_" for c in main_digits),
            "code_digits": "".join(c if c else "_" for c in code_digits),
-           "method": "masked" if masked else "blur", "reason": None}
+           "method": "masked" if masked else "blur", "thr": round(thr, 3), "reason": None}
     text = "".join(c for c in main_digits if c is not None).lstrip(" ")
     if "?" in text or not text or " " in text:
         res["reason"] = "unreadable digits"
@@ -176,7 +187,7 @@ def _read(img, profile, lcd, tf, scale, masked):
         res["reason"] = "low confidence"
         res["kwh"] = None
     res["ok"] = res["kwh"] is not None
-    return res, main + code
+    return res, main + code, thr
 
 
 def recognise(path, profile, debug=None):
@@ -191,8 +202,9 @@ def recognise(path, profile, debug=None):
     tf = make_transform(lcd, ref)
 
     # Two background estimates, cross-checked (see darkness_map).
-    a, pos_a = _read(img, profile, lcd, tf, scale, masked=True)
-    b, pos_b = _read(img, profile, lcd, tf, scale, masked=False)
+    a, pos_a, thr_a = _read(img, profile, lcd, tf, scale, masked=True)
+    b, pos_b, thr_b = _read(img, profile, lcd, tf, scale, masked=False)
+    thr = thr_a
     if a["ok"] and b["ok"] and a["kwh"] != b["kwh"]:
         result, positions = dict(a), pos_a
         result.update(ok=False, kwh=None, reason=f"methods disagree ({a['kwh']} vs {b['kwh']})")
@@ -201,11 +213,11 @@ def recognise(path, profile, debug=None):
         if a["ok"] and b["ok"]:
             result["confidence"] = max(a["confidence"], b["confidence"])
     else:
-        result, positions = b, pos_b
+        result, positions, thr = b, pos_b, thr_b
     result.update(lcd=list(lcd), scale=round(scale, 3))
 
     if debug:
-        draw_debug(img, positions, cal["segment_thr"], lcd, result, debug)
+        draw_debug(img, positions, thr, lcd, result, debug)
     return result
 
 

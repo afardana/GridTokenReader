@@ -26,8 +26,12 @@ How it works:
 4. **Decode:** lit patterns map to digits, and leading blanks are allowed. The value
    has a fixed number of decimals (SMI-810: 2). The screen code must match
    `balance_screen_code` (SMI-810: `37`), or the frame is ignored.
-5. **Confidence** = the smallest distance of any segment from the threshold,
-   normalised by `confidence_spread`. Below `min_confidence` the result is `ok: false`.
+5. **Threshold and confidence:** the lit/unlit threshold is set per frame, in the
+   middle of the widest gap between the sorted segment values (only gaps starting
+   below 0.15 count, since unlit and ghost segments live there). This way it doesn't
+   depend on focus or exposure. Confidence = gap width / `confidence_gap`, capped
+   at 1; below `min_confidence` the result is `ok: false`. `segment_thr` is only
+   the fallback when a frame has no gap at all.
 
 ## Calibrating a new installation
 
@@ -36,7 +40,7 @@ Take a backlit frame, run with `--debug`, and adjust `profiles/<device>.json`:
 - `code`: the same for the small screen-code digits.
 - `lcd`: the LCD window edges (`top`, `bottom`, `right`) of that frame, as printed in the result's `lcd` field.
 - Check that every lit segment's circle is red and every unlit one is green in the overlay.
-  `segment_thr` sits halfway between the weakest lit and the strongest unlit value.
+  The result's `thr` field shows the threshold the frame chose.
 
 Plausibility (the balance only falls, at most at the supply limit, and rises only on
 confirmed top-ups) lives in the Node-RED flow, not here.

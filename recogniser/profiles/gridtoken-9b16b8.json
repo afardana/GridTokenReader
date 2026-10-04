@@ -9,7 +9,7 @@
       "right": 689
     },
     "segment_thr": 0.05,
-    "confidence_spread": 0.03,
+    "confidence_gap": 0.06,
     "min_confidence": 0.3,
     "main": {
       "x0": 542,
